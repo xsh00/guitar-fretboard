@@ -1,0 +1,16 @@
+{
+  "name": "指板音名反应训练器",
+  "short_name": "指板反应",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111316",
+  "theme_color": "#111316",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
