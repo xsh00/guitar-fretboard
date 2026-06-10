@@ -1,4 +1,4 @@
-export type ExerciseMode = "position-to-note" | "note-to-position";
+export type ExerciseMode = "position-to-note" | "note-to-position" | "note-map";
 
 export type GuitarString = 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -64,12 +64,12 @@ export const STANDARD_TUNING_PITCH_CLASSES: Record<GuitarString, number> = {
 };
 
 export const STRING_LABELS: Record<GuitarString, string> = {
-  1: "1弦 E",
-  2: "2弦 B",
-  3: "3弦 G",
-  4: "4弦 D",
-  5: "5弦 A",
-  6: "6弦 E",
+  1: "1弦",
+  2: "2弦",
+  3: "3弦",
+  4: "4弦",
+  5: "5弦",
+  6: "6弦",
 };
 
 const NATURAL_PITCH_CLASSES: Record<string, number> = {
@@ -103,6 +103,15 @@ export function buildFretboardPositions(
       pitchClass: getPitchClassForPosition(string, fret),
     }))
   );
+}
+
+export function findPositionsForPitchClass(
+  pitchClass: number,
+  config: PracticeConfig = DEFAULT_CONFIG
+): FretboardPosition[] {
+  return buildFretboardPositions(config)
+    .filter((position) => position.pitchClass === wrapPitchClass(pitchClass))
+    .sort((a, b) => a.string - b.string);
 }
 
 export function parseNoteName(input: string): number | null {

@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "./fretboard";
 import { PracticeRun, generateQuestionSequence } from "./practice";
-import { createProgressSummary, createRunTrend, createWeakPointStats } from "./analytics";
+import { NoteMapRun, createNoteMapClick, createNoteMapQuestion } from "./noteMap";
+import {
+  createNoteMapWeakPointStats,
+  createProgressSummary,
+  createRunTrend,
+  createWeakPointStats,
+} from "./analytics";
 
 function makeRun(id: string, completedAt: string, elapsedMs: number, correct: boolean): PracticeRun {
   const question = generateQuestionSequence(DEFAULT_CONFIG, 1, () => 0)[0];
@@ -63,5 +69,42 @@ describe("practice analytics", () => {
     ]);
 
     expect(trend.map((point) => point.runId)).toEqual(["old", "new"]);
+  });
+
+  it("summarizes note-map weak points by note, string, and note-string", () => {
+    const question = createNoteMapQuestion(0, DEFAULT_CONFIG);
+    const wrongClick = createNoteMapClick(
+      question,
+      { ...question.positions[0], fret: 2, pitchClass: 6 },
+      1200
+    );
+    const correctClicks = question.positions.map((position, index) =>
+      createNoteMapClick(question, position, 800 + index)
+    );
+    const run: NoteMapRun = {
+      id: "note-map-run",
+      startedAt: "2026-06-10T00:00:00.000Z",
+      completedAt: "2026-06-10T00:01:00.000Z",
+      config: DEFAULT_CONFIG,
+      questions: [
+        {
+          question,
+          clicks: [wrongClick, ...correctClicks],
+          startedAt: "2026-06-10T00:00:00.000Z",
+          completedAt: "2026-06-10T00:00:05.000Z",
+          totalElapsedMs: 5000,
+        },
+      ],
+    };
+
+    const weakPoints = createNoteMapWeakPointStats([run]);
+
+    expect(weakPoints.byNote[0]).toMatchObject({
+      dimension: "note",
+      targetPitchClass: 0,
+      wrongClicks: 1,
+    });
+    expect(weakPoints.byString.length).toBeGreaterThan(0);
+    expect(weakPoints.byNoteString.length).toBeGreaterThan(0);
   });
 });

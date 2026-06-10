@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_CONFIG,
+  STRING_LABELS,
   buildFretboardPositions,
+  findPositionsForPitchClass,
   formatPitchClass,
   getPitchClassForPosition,
   isCorrectNoteAnswer,
@@ -24,6 +26,17 @@ describe("fretboard model", () => {
     expect(positions[71]).toMatchObject({ string: 6, fret: 12, pitchClass: 4 });
   });
 
+  it("keeps string labels free from open-string note hints", () => {
+    expect(STRING_LABELS).toEqual({
+      1: "1弦",
+      2: "2弦",
+      3: "3弦",
+      4: "4弦",
+      5: "5弦",
+      6: "6弦",
+    });
+  });
+
   it("parses enharmonic spellings", () => {
     expect(parseNoteName("F#")).toBe(6);
     expect(parseNoteName("Gb")).toBe(6);
@@ -41,5 +54,15 @@ describe("fretboard model", () => {
   it("formats pitch classes with equivalent spellings", () => {
     expect(formatPitchClass(0)).toBe("C");
     expect(formatPitchClass(6)).toBe("F# / Gb");
+  });
+
+  it("finds one target note position on each string in the default range", () => {
+    for (let pitchClass = 0; pitchClass < 12; pitchClass += 1) {
+      const positions = findPositionsForPitchClass(pitchClass, DEFAULT_CONFIG);
+
+      expect(positions).toHaveLength(6);
+      expect(new Set(positions.map((position) => position.string)).size).toBe(6);
+      expect(positions.every((position) => position.pitchClass === pitchClass)).toBe(true);
+    }
   });
 });

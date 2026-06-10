@@ -182,6 +182,34 @@ h4 {
   margin-bottom: 14px;
 }
 
+.mode-switch {
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin: 0 0 14px;
+  padding: 4px;
+  border: 1px solid rgba(17, 19, 22, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.mode-switch button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 0.88rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.mode-switch button.is-selected {
+  color: #fff;
+  background: var(--deep);
+}
+
 .ready-tags {
   display: flex;
   flex-wrap: wrap;
@@ -227,6 +255,64 @@ h4 {
 .ready-board {
   grid-column: 1 / -1;
   margin-top: 8px;
+}
+
+.note-map-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.note-map-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.note-map-head h2 {
+  margin-bottom: 14px;
+}
+
+.note-map-status {
+  display: grid;
+  grid-template-columns: 1.35fr repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.note-map-status div {
+  min-height: 78px;
+  padding: 12px;
+  border: 1px solid rgba(17, 19, 22, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.note-map-status span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.note-map-status strong {
+  color: var(--deep);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: clamp(1.2rem, 2vw, 2rem);
+}
+
+.note-map-status div:first-child strong {
+  font-size: clamp(2rem, 4.6vw, 4.4rem);
+  line-height: 0.95;
+}
+
+.note-map-review {
+  display: grid;
+  gap: 16px;
+}
+
+.note-map-export {
+  justify-content: flex-start;
 }
 
 .memory-panel {
@@ -391,6 +477,18 @@ h4 {
   isolation: isolate;
 }
 
+.fret-cell.is-interactive {
+  cursor: crosshair;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.fret-cell.is-interactive:hover,
+.fret-cell.is-interactive:focus-visible {
+  outline: 0;
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 0 0 2px rgba(8, 168, 137, 0.36);
+}
+
 .fret-cell.has-heat {
   background:
     linear-gradient(
@@ -447,6 +545,40 @@ h4 {
   box-shadow:
     0 0 0 8px rgba(8, 168, 137, 0.22),
     0 16px 28px rgba(11, 30, 28, 0.26);
+}
+
+.map-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 4;
+  width: 30px;
+  height: 30px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 4px solid #f8f7ef;
+  box-shadow: 0 12px 22px rgba(17, 19, 22, 0.18);
+}
+
+.marker-found .map-dot {
+  background: var(--teal);
+  box-shadow:
+    0 0 0 7px rgba(8, 168, 137, 0.2),
+    0 12px 22px rgba(17, 19, 22, 0.18);
+}
+
+.marker-wrong .map-dot {
+  background: var(--coral);
+  box-shadow:
+    0 0 0 7px rgba(232, 93, 72, 0.22),
+    0 12px 22px rgba(17, 19, 22, 0.18);
+}
+
+.marker-answer .map-dot {
+  background: var(--brass);
+  box-shadow:
+    0 0 0 7px rgba(201, 164, 87, 0.24),
+    0 12px 22px rgba(17, 19, 22, 0.18);
 }
 
 .answer-console {
@@ -588,6 +720,7 @@ h4 {
 
 @media (max-width: 900px) {
   .metric-strip,
+  .note-map-status,
   .review-grid {
     grid-template-columns: 1fr 1fr;
   }
@@ -625,6 +758,14 @@ h4 {
     grid-template-columns: 1fr;
   }
 
+  .note-map-head {
+    display: grid;
+  }
+
+  .note-map-status {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .start-button {
     width: 100%;
   }
@@ -644,6 +785,10 @@ h4 {
 
   .memory-metrics {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .mode-switch {
+    width: 100%;
   }
 
   .review-grid {

@@ -6,6 +6,7 @@ import {
   positionKey,
 } from "./fretboard";
 import { PracticeAnswer, PracticeRun, createPracticeSummary } from "./practice";
+import { NoteMapRun } from "./noteMap";
 
 export type ProgressSummary = {
   runCount: number;
@@ -43,6 +44,23 @@ export type WeakPointStat = {
   averageMs: number;
   lastAttemptedAt: string;
   score: number;
+};
+
+export type NoteMapWeakPointStat = {
+  key: string;
+  dimension: "note" | "string" | "note-string";
+  targetPitchClass: number | null;
+  string: number | null;
+  attempts: number;
+  wrongClicks: number;
+  averageMs: number;
+  score: number;
+};
+
+export type NoteMapWeakPointSummary = {
+  byNote: NoteMapWeakPointStat[];
+  byString: NoteMapWeakPointStat[];
+  byNoteString: NoteMapWeakPointStat[];
 };
 
 function flattenAnswers(runs: PracticeRun[]): PracticeAnswer[] {
@@ -159,4 +177,80 @@ export function createWeakPointStats(
       };
     })
     .sort((a, b) => b.score - a.score);
+}
+
+function pushStatValue(
+  map: Map<string, { values: number[]; wrongClicks: number; attempts: number }>,
+  key: string,
+  elapsedMs: number,
+  wrongClicks = 0
+) {
+  const current = map.get(key) ?? { values: [], wrongClicks: 0, attempts: 0 };
+
+  current.values.push(elapsedMs);
+  current.wrongClicks += wrongClicks;
+  current.attempts += 1;
+  map.set(key, current);
+}
+
+function toNoteMapStats(
+  map: Map<string, { values: number[]; wrongClicks: number; attempts: number }>,
+  dimension: NoteMapWeakPointStat["dimension"],
+  parseKey: (key: string) => Pick<NoteMapWeakPointStat, "targetPitchClass" | "string">
+): NoteMapWeakPointStat[] {
+  return Array.from(map.entries())
+    .map(([key, stat]) => {
+      const averageMs = average(stat.values);
+      const parsed = parseKey(key);
+
+      return {
+        key,
+        dimension,
+        targetPitchClass: parsed.targetPitchClass,
+        string: parsed.string,
+        attempts: stat.attempts,
+        wrongClicks: stat.wrongClicks,
+        averageMs,
+        score: Math.round(averageMs + stat.wrongClicks * 1600),
+      };
+    })
+    .sort((a, b) => b.score - a.score);
+}
+
+export function createNoteMapWeakPointStats(
+  runs: NoteMapRun[]
+): NoteMapWeakPointSummary {
+  const byNote = new Map<string, { values: number[]; wrongClicks: number; attempts: number }>();
+  const byString = new Map<string, { values: number[]; wrongClicks: number; attempts: number }>();
+  const byNoteString = new Map<string, { values: number[]; wrongClicks: number; attempts: number }>();
+
+  for (const run of runs) {
+    for (const question of run.questions) {
+      const wrongClicks = question.clicks.filter((click) => !click.correct).length;
+      const noteKey = String(question.question.targetPitchClass);
+      pushStatValue(byNote, noteKey, question.totalElapsedMs, wrongClicks);
+
+      for (const click of question.clicks) {
+        const stringKey = String(click.position.string);
+        const noteStringKey = `${question.question.targetPitchClass}-${click.position.string}`;
+        pushStatValue(byString, stringKey, click.elapsedMs, click.correct ? 0 : 1);
+        pushStatValue(byNoteString, noteStringKey, click.elapsedMs, click.correct ? 0 : 1);
+      }
+    }
+  }
+
+  return {
+    byNote: toNoteMapStats(byNote, "note", (key) => ({
+      targetPitchClass: Number(key),
+      string: null,
+    })),
+    byString: toNoteMapStats(byString, "string", (key) => ({
+      targetPitchClass: null,
+      string: Number(key),
+    })),
+    byNoteString: toNoteMapStats(byNoteString, "note-string", (key) => {
+      const [targetPitchClass, string] = key.split("-").map(Number);
+      return { targetPitchClass, string };
+    }),
+  };
 }

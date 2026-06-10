@@ -1,5 +1,10 @@
 import { formatPitchClass, positionLabel } from "./fretboard";
-import { createProgressSummary, createRunTrend, createWeakPointStats } from "./analytics";
+import {
+  createNoteMapWeakPointStats,
+  createProgressSummary,
+  createRunTrend,
+  createWeakPointStats,
+} from "./analytics";
 import { PracticeMemory } from "./storage";
 
 export type ExportBundle = {
@@ -9,6 +14,7 @@ export type ExportBundle = {
   memory: PracticeMemory;
   progress: ReturnType<typeof createProgressSummary>;
   weakPoints: ReturnType<typeof createWeakPointStats>;
+  noteMapWeakPoints: ReturnType<typeof createNoteMapWeakPointStats>;
   runTrend: ReturnType<typeof createRunTrend>;
 };
 
@@ -34,6 +40,7 @@ export function createExportBundle(memory: PracticeMemory): ExportBundle {
     memory,
     progress: createProgressSummary(memory.runs),
     weakPoints: createWeakPointStats(memory.runs),
+    noteMapWeakPoints: createNoteMapWeakPointStats(memory.noteMapRuns),
     runTrend: createRunTrend(memory.runs),
   };
 }
@@ -121,6 +128,99 @@ export function createWeakPointCsvExport(memory: PracticeMemory): string {
         weakPoint.averageMs,
         weakPoint.lastAttemptedAt,
         weakPoint.score,
+      ])
+    );
+  }
+
+  return rows.join("\n");
+}
+
+export function createNoteMapClickCsvExport(memory: PracticeMemory): string {
+  const rows = [
+    csvRow([
+      "run_id",
+      "run_started_at",
+      "run_completed_at",
+      "question_index",
+      "target_pitch_class",
+      "target_note",
+      "click_index",
+      "string",
+      "fret",
+      "position",
+      "pitch_class",
+      "clicked_note",
+      "correct",
+      "elapsed_ms",
+      "clicked_at",
+      "question_total_elapsed_ms",
+    ]),
+  ];
+
+  for (const run of memory.noteMapRuns) {
+    run.questions.forEach((question, questionIndex) => {
+      question.clicks.forEach((click, clickIndex) => {
+        rows.push(
+          csvRow([
+            run.id,
+            run.startedAt,
+            run.completedAt,
+            questionIndex + 1,
+            question.question.targetPitchClass,
+            formatPitchClass(question.question.targetPitchClass),
+            clickIndex + 1,
+            click.position.string,
+            click.position.fret,
+            positionLabel(click.position),
+            click.position.pitchClass,
+            formatPitchClass(click.position.pitchClass),
+            click.correct,
+            click.elapsedMs,
+            click.clickedAt,
+            question.totalElapsedMs,
+          ])
+        );
+      });
+    });
+  }
+
+  return rows.join("\n");
+}
+
+export function createNoteMapWeakPointCsvExport(memory: PracticeMemory): string {
+  const rows = [
+    csvRow([
+      "dimension",
+      "key",
+      "target_pitch_class",
+      "target_note",
+      "string",
+      "attempts",
+      "wrong_clicks",
+      "average_ms",
+      "weakness_score",
+    ]),
+  ];
+  const weakPoints = createNoteMapWeakPointStats(memory.noteMapRuns);
+
+  for (const group of [
+    ...weakPoints.byNote,
+    ...weakPoints.byString,
+    ...weakPoints.byNoteString,
+  ]) {
+    rows.push(
+      csvRow([
+        group.dimension,
+        group.key,
+        group.targetPitchClass,
+        group.targetPitchClass === null
+          ? null
+          : formatPitchClass(group.targetPitchClass),
+        group.string,
+        group.attempts,
+        group.wrongClicks,
+        group.averageMs,
+        group.score,
       ])
     );
   }

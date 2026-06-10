@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "./fretboard";
 import { PracticeRun, generateQuestionSequence } from "./practice";
+import { NoteMapRun, createNoteMapClick, createNoteMapQuestion } from "./noteMap";
 import {
   createAnswerCsvExport,
   createJsonExport,
+  createNoteMapClickCsvExport,
+  createNoteMapWeakPointCsvExport,
   createWeakPointCsvExport,
 } from "./export";
 import { PracticeMemory } from "./storage";
@@ -26,11 +29,29 @@ function makeMemory(): PracticeMemory {
     ],
   };
 
+  const noteMapQuestion = createNoteMapQuestion(0, DEFAULT_CONFIG);
+  const noteMapRun: NoteMapRun = {
+    id: "note-map-run",
+    startedAt: "2026-06-10T00:02:00.000Z",
+    completedAt: "2026-06-10T00:03:00.000Z",
+    config: DEFAULT_CONFIG,
+    questions: [
+      {
+        question: noteMapQuestion,
+        clicks: [createNoteMapClick(noteMapQuestion, noteMapQuestion.positions[0], 700)],
+        startedAt: "2026-06-10T00:02:00.000Z",
+        completedAt: "2026-06-10T00:02:05.000Z",
+        totalElapsedMs: 5000,
+      },
+    ],
+  };
+
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     createdAt: "2026-06-10T00:00:00.000Z",
     updatedAt: "2026-06-10T00:01:00.000Z",
     runs: [run],
+    noteMapRuns: [noteMapRun],
   };
 }
 
@@ -40,8 +61,10 @@ describe("practice export", () => {
 
     expect(parsed.app).toBe("fretboard-reaction");
     expect(parsed.memory.runs[0].id).toBe("run-1");
+    expect(parsed.memory.noteMapRuns[0].id).toBe("note-map-run");
     expect(parsed.progress.totalAnswers).toBe(1);
     expect(parsed.weakPoints).toHaveLength(1);
+    expect(parsed.noteMapWeakPoints.byNote).toHaveLength(1);
   });
 
   it("creates answer-level CSV", () => {
@@ -58,5 +81,21 @@ describe("practice export", () => {
     expect(csv).toContain("position_key,string,fret");
     expect(csv).toContain("1-1");
     expect(csv).toContain("1.0000");
+  });
+
+  it("creates note-map click CSV", () => {
+    const csv = createNoteMapClickCsvExport(makeMemory());
+
+    expect(csv).toContain("target_pitch_class,target_note");
+    expect(csv).toContain("note-map-run");
+    expect(csv).toContain("C");
+  });
+
+  it("creates note-map weak-point CSV", () => {
+    const csv = createNoteMapWeakPointCsvExport(makeMemory());
+
+    expect(csv).toContain("dimension,key,target_pitch_class");
+    expect(csv).toContain("note,0,0,C");
+    expect(csv).toContain("note-string");
   });
 });
