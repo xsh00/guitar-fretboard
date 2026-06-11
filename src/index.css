@@ -184,7 +184,7 @@ h4 {
 
 .mode-switch {
   display: inline-grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 4px;
   margin: 0 0 14px;
   padding: 4px;
@@ -315,6 +315,52 @@ h4 {
   justify-content: flex-start;
 }
 
+.scale-pattern-panel {
+  align-content: start;
+}
+
+.scale-pattern-status div:first-child strong {
+  font-size: clamp(2rem, 4.6vw, 4.4rem);
+}
+
+.scale-string-map {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.scale-string-row {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(17, 19, 22, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.scale-string-row span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.scale-string-row strong {
+  color: var(--deep);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 0.94rem;
+  letter-spacing: 0;
+  text-align: right;
+  word-spacing: 0.28rem;
+}
+
+.scale-start-recall {
+  justify-self: start;
+}
+
 .memory-panel {
   grid-column: 1 / -1;
   padding: 16px;
@@ -418,14 +464,18 @@ h4 {
 }
 
 .fretboard-shell {
-  min-width: 840px;
+  --fret-count: 12;
+  --string-label-width: 82px;
+  --fret-cell-width: 56px;
+  width: max-content;
+  min-width: 0;
   color: var(--deep);
 }
 
 .fret-numbers,
 .string-row {
   display: grid;
-  grid-template-columns: 82px repeat(12, minmax(48px, 1fr));
+  grid-template-columns: var(--string-label-width) repeat(var(--fret-count), var(--fret-cell-width));
 }
 
 .fret-numbers span {
@@ -558,6 +608,18 @@ h4 {
   border-radius: 50%;
   border: 4px solid #f8f7ef;
   box-shadow: 0 12px 22px rgba(17, 19, 22, 0.18);
+}
+
+.map-dot-label {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 0.78rem;
+  font-weight: 900;
+  line-height: 1;
 }
 
 .marker-found .map-dot {
@@ -721,6 +783,7 @@ h4 {
 @media (max-width: 900px) {
   .metric-strip,
   .note-map-status,
+  .scale-string-map,
   .review-grid {
     grid-template-columns: 1fr 1fr;
   }
@@ -764,6 +827,10 @@ h4 {
 
   .note-map-status {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .scale-string-map {
+    grid-template-columns: 1fr;
   }
 
   .start-button {
@@ -813,11 +880,12 @@ h4 {
   }
 
   .fretboard-shell {
-    min-width: 760px;
+    --string-label-width: 72px;
+    --fret-cell-width: 56px;
   }
 
   .fret-numbers,
   .string-row {
-    grid-template-columns: 72px repeat(12, 56px);
+    grid-template-columns: var(--string-label-width) repeat(var(--fret-count), var(--fret-cell-width));
   }
 }

@@ -3,10 +3,18 @@ import { DEFAULT_CONFIG } from "./fretboard";
 import { PracticeRun, generateQuestionSequence } from "./practice";
 import { NoteMapRun, createNoteMapClick, createNoteMapQuestion } from "./noteMap";
 import {
+  ScalePatternRun,
+  SCALE_PATTERN_STARTS,
+  createScalePatternClick,
+  createScalePatternQuestion,
+} from "./scalePattern";
+import {
   createAnswerCsvExport,
   createJsonExport,
   createNoteMapClickCsvExport,
   createNoteMapWeakPointCsvExport,
+  createScalePatternClickCsvExport,
+  createScalePatternWeakPointCsvExport,
   createWeakPointCsvExport,
 } from "./export";
 import { PracticeMemory } from "./storage";
@@ -45,13 +53,35 @@ function makeMemory(): PracticeMemory {
       },
     ],
   };
+  const scaleQuestion = createScalePatternQuestion(SCALE_PATTERN_STARTS[0], "ascending");
+  const scaleClick = createScalePatternClick(
+    scaleQuestion,
+    [],
+    scaleQuestion.steps[0].position,
+    800
+  );
+  const scalePatternRun: ScalePatternRun = {
+    id: "scale-pattern-run",
+    startedAt: "2026-06-10T00:04:00.000Z",
+    completedAt: "2026-06-10T00:05:00.000Z",
+    questions: [
+      {
+        question: scaleQuestion,
+        clicks: [scaleClick],
+        startedAt: "2026-06-10T00:04:00.000Z",
+        completedAt: "2026-06-10T00:04:05.000Z",
+        totalElapsedMs: 5000,
+      },
+    ],
+  };
 
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     createdAt: "2026-06-10T00:00:00.000Z",
     updatedAt: "2026-06-10T00:01:00.000Z",
     runs: [run],
     noteMapRuns: [noteMapRun],
+    scalePatternRuns: [scalePatternRun],
   };
 }
 
@@ -62,9 +92,11 @@ describe("practice export", () => {
     expect(parsed.app).toBe("fretboard-reaction");
     expect(parsed.memory.runs[0].id).toBe("run-1");
     expect(parsed.memory.noteMapRuns[0].id).toBe("note-map-run");
+    expect(parsed.memory.scalePatternRuns[0].id).toBe("scale-pattern-run");
     expect(parsed.progress.totalAnswers).toBe(1);
     expect(parsed.weakPoints).toHaveLength(1);
     expect(parsed.noteMapWeakPoints.byNote).toHaveLength(1);
+    expect(parsed.scalePatternWeakPoints.byStartNote).toHaveLength(1);
   });
 
   it("creates answer-level CSV", () => {
@@ -97,5 +129,21 @@ describe("practice export", () => {
     expect(csv).toContain("dimension,key,target_pitch_class");
     expect(csv).toContain("note,0,0,C");
     expect(csv).toContain("note-string");
+  });
+
+  it("creates scale-pattern click CSV", () => {
+    const csv = createScalePatternClickCsvExport(makeMemory());
+
+    expect(csv).toContain("start_note,direction");
+    expect(csv).toContain("scale-pattern-run");
+    expect(csv).toContain("F,ascending");
+  });
+
+  it("creates scale-pattern weak-point CSV", () => {
+    const csv = createScalePatternWeakPointCsvExport(makeMemory());
+
+    expect(csv).toContain("dimension,key,start_note");
+    expect(csv).toContain("start-note,F,F");
+    expect(csv).toContain("direction,ascending");
   });
 });

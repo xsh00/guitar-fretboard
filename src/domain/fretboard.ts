@@ -1,4 +1,8 @@
-export type ExerciseMode = "position-to-note" | "note-to-position" | "note-map";
+export type ExerciseMode =
+  | "position-to-note"
+  | "note-to-position"
+  | "note-map"
+  | "scale-pattern";
 
 export type GuitarString = 1 | 2 | 3 | 4 | 5 | 6;
 

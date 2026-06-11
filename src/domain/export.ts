@@ -3,6 +3,7 @@ import {
   createNoteMapWeakPointStats,
   createProgressSummary,
   createRunTrend,
+  createScalePatternWeakPointStats,
   createWeakPointStats,
 } from "./analytics";
 import { PracticeMemory } from "./storage";
@@ -15,6 +16,7 @@ export type ExportBundle = {
   progress: ReturnType<typeof createProgressSummary>;
   weakPoints: ReturnType<typeof createWeakPointStats>;
   noteMapWeakPoints: ReturnType<typeof createNoteMapWeakPointStats>;
+  scalePatternWeakPoints: ReturnType<typeof createScalePatternWeakPointStats>;
   runTrend: ReturnType<typeof createRunTrend>;
 };
 
@@ -41,6 +43,7 @@ export function createExportBundle(memory: PracticeMemory): ExportBundle {
     progress: createProgressSummary(memory.runs),
     weakPoints: createWeakPointStats(memory.runs),
     noteMapWeakPoints: createNoteMapWeakPointStats(memory.noteMapRuns),
+    scalePatternWeakPoints: createScalePatternWeakPointStats(memory.scalePatternRuns),
     runTrend: createRunTrend(memory.runs),
   };
 }
@@ -217,6 +220,108 @@ export function createNoteMapWeakPointCsvExport(memory: PracticeMemory): string 
           ? null
           : formatPitchClass(group.targetPitchClass),
         group.string,
+        group.attempts,
+        group.wrongClicks,
+        group.averageMs,
+        group.score,
+      ])
+    );
+  }
+
+  return rows.join("\n");
+}
+
+export function createScalePatternClickCsvExport(memory: PracticeMemory): string {
+  const rows = [
+    csvRow([
+      "run_id",
+      "run_started_at",
+      "run_completed_at",
+      "question_index",
+      "start_note",
+      "direction",
+      "click_index",
+      "step_index",
+      "expected_string",
+      "expected_fret",
+      "expected_position",
+      "expected_note",
+      "clicked_string",
+      "clicked_fret",
+      "clicked_position",
+      "clicked_note",
+      "correct",
+      "elapsed_ms",
+      "clicked_at",
+      "question_total_elapsed_ms",
+    ]),
+  ];
+
+  for (const run of memory.scalePatternRuns) {
+    run.questions.forEach((question, questionIndex) => {
+      question.clicks.forEach((click, clickIndex) => {
+        rows.push(
+          csvRow([
+            run.id,
+            run.startedAt,
+            run.completedAt,
+            questionIndex + 1,
+            question.question.start.noteName,
+            question.question.direction,
+            clickIndex + 1,
+            click.stepIndex + 1,
+            click.expected.string,
+            click.expected.fret,
+            positionLabel(click.expected),
+            formatPitchClass(click.expected.pitchClass),
+            click.position.string,
+            click.position.fret,
+            positionLabel(click.position),
+            formatPitchClass(click.position.pitchClass),
+            click.correct,
+            click.elapsedMs,
+            click.clickedAt,
+            question.totalElapsedMs,
+          ])
+        );
+      });
+    });
+  }
+
+  return rows.join("\n");
+}
+
+export function createScalePatternWeakPointCsvExport(memory: PracticeMemory): string {
+  const rows = [
+    csvRow([
+      "dimension",
+      "key",
+      "start_note",
+      "direction",
+      "string",
+      "step_index",
+      "attempts",
+      "wrong_clicks",
+      "average_ms",
+      "weakness_score",
+    ]),
+  ];
+  const weakPoints = createScalePatternWeakPointStats(memory.scalePatternRuns);
+
+  for (const group of [
+    ...weakPoints.byStartNote,
+    ...weakPoints.byDirection,
+    ...weakPoints.byString,
+    ...weakPoints.byStep,
+  ]) {
+    rows.push(
+      csvRow([
+        group.dimension,
+        group.key,
+        group.startNote,
+        group.direction,
+        group.string,
+        group.stepIndex,
         group.attempts,
         group.wrongClicks,
         group.averageMs,

@@ -7,6 +7,7 @@ import {
 } from "./fretboard";
 import { PracticeAnswer, PracticeRun, createPracticeSummary } from "./practice";
 import { NoteMapRun } from "./noteMap";
+import { ScalePatternDirection, ScalePatternRun } from "./scalePattern";
 
 export type ProgressSummary = {
   runCount: number;
@@ -61,6 +62,26 @@ export type NoteMapWeakPointSummary = {
   byNote: NoteMapWeakPointStat[];
   byString: NoteMapWeakPointStat[];
   byNoteString: NoteMapWeakPointStat[];
+};
+
+export type ScalePatternWeakPointStat = {
+  key: string;
+  dimension: "start-note" | "direction" | "string" | "step";
+  startNote: string | null;
+  direction: ScalePatternDirection | null;
+  string: number | null;
+  stepIndex: number | null;
+  attempts: number;
+  wrongClicks: number;
+  averageMs: number;
+  score: number;
+};
+
+export type ScalePatternWeakPointSummary = {
+  byStartNote: ScalePatternWeakPointStat[];
+  byDirection: ScalePatternWeakPointStat[];
+  byString: ScalePatternWeakPointStat[];
+  byStep: ScalePatternWeakPointStat[];
 };
 
 function flattenAnswers(runs: PracticeRun[]): PracticeAnswer[] {
@@ -251,6 +272,109 @@ export function createNoteMapWeakPointStats(
     byNoteString: toNoteMapStats(byNoteString, "note-string", (key) => {
       const [targetPitchClass, string] = key.split("-").map(Number);
       return { targetPitchClass, string };
+    }),
+  };
+}
+
+function toScalePatternStats(
+  map: Map<string, { values: number[]; wrongClicks: number; attempts: number }>,
+  dimension: ScalePatternWeakPointStat["dimension"],
+  parseKey: (
+    key: string
+  ) => Pick<
+    ScalePatternWeakPointStat,
+    "startNote" | "direction" | "string" | "stepIndex"
+  >
+): ScalePatternWeakPointStat[] {
+  return Array.from(map.entries())
+    .map(([key, stat]) => {
+      const averageMs = average(stat.values);
+      const parsed = parseKey(key);
+
+      return {
+        key,
+        dimension,
+        startNote: parsed.startNote,
+        direction: parsed.direction,
+        string: parsed.string,
+        stepIndex: parsed.stepIndex,
+        attempts: stat.attempts,
+        wrongClicks: stat.wrongClicks,
+        averageMs,
+        score: Math.round(averageMs + stat.wrongClicks * 1700),
+      };
+    })
+    .sort((a, b) => b.score - a.score);
+}
+
+export function createScalePatternWeakPointStats(
+  runs: ScalePatternRun[]
+): ScalePatternWeakPointSummary {
+  const byStartNote = new Map<string, { values: number[]; wrongClicks: number; attempts: number }>();
+  const byDirection = new Map<string, { values: number[]; wrongClicks: number; attempts: number }>();
+  const byString = new Map<string, { values: number[]; wrongClicks: number; attempts: number }>();
+  const byStep = new Map<string, { values: number[]; wrongClicks: number; attempts: number }>();
+
+  for (const run of runs) {
+    for (const question of run.questions) {
+      const wrongClicks = question.clicks.filter((click) => !click.correct).length;
+      pushStatValue(
+        byStartNote,
+        question.question.start.noteName,
+        question.totalElapsedMs,
+        wrongClicks
+      );
+      pushStatValue(
+        byDirection,
+        question.question.direction,
+        question.totalElapsedMs,
+        wrongClicks
+      );
+
+      for (const click of question.clicks) {
+        pushStatValue(
+          byString,
+          String(click.position.string),
+          click.elapsedMs,
+          click.correct ? 0 : 1
+        );
+        pushStatValue(
+          byStep,
+          `${question.question.start.noteName}-${question.question.direction}-${click.stepIndex + 1}`,
+          click.elapsedMs,
+          click.correct ? 0 : 1
+        );
+      }
+    }
+  }
+
+  return {
+    byStartNote: toScalePatternStats(byStartNote, "start-note", (key) => ({
+      startNote: key,
+      direction: null,
+      string: null,
+      stepIndex: null,
+    })),
+    byDirection: toScalePatternStats(byDirection, "direction", (key) => ({
+      startNote: null,
+      direction: key as ScalePatternDirection,
+      string: null,
+      stepIndex: null,
+    })),
+    byString: toScalePatternStats(byString, "string", (key) => ({
+      startNote: null,
+      direction: null,
+      string: Number(key),
+      stepIndex: null,
+    })),
+    byStep: toScalePatternStats(byStep, "step", (key) => {
+      const [startNote, direction, stepIndex] = key.split("-");
+      return {
+        startNote,
+        direction: direction as ScalePatternDirection,
+        string: null,
+        stepIndex: Number(stepIndex),
+      };
     }),
   };
 }

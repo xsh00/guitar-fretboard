@@ -1,17 +1,20 @@
 import { PracticeRun } from "./practice";
 import { NoteMapRun } from "./noteMap";
+import { ScalePatternRun } from "./scalePattern";
 
 export const HISTORY_STORAGE_KEY = "fretboard-reaction-history-v1";
 export const LEGACY_MEMORY_STORAGE_KEY = "fretboard-reaction-memory-v2";
-export const MEMORY_STORAGE_KEY = "fretboard-reaction-memory-v3";
+export const LEGACY_V3_MEMORY_STORAGE_KEY = "fretboard-reaction-memory-v3";
+export const MEMORY_STORAGE_KEY = "fretboard-reaction-memory-v4";
 const MAX_HISTORY_RUNS = 365;
 
 export type PracticeMemory = {
-  schemaVersion: 3;
+  schemaVersion: 4;
   createdAt: string;
   updatedAt: string;
   runs: PracticeRun[];
   noteMapRuns: NoteMapRun[];
+  scalePatternRuns: ScalePatternRun[];
 };
 
 type StoredPracticeMemory = {
@@ -20,6 +23,7 @@ type StoredPracticeMemory = {
   updatedAt?: string;
   runs?: PracticeRun[];
   noteMapRuns?: NoteMapRun[];
+  scalePatternRuns?: ScalePatternRun[];
 };
 
 function canUseStorage(): boolean {
@@ -36,11 +40,12 @@ function createEmptyMemory(): PracticeMemory {
   const now = new Date().toISOString();
 
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     createdAt: now,
     updatedAt: now,
     runs: [],
     noteMapRuns: [],
+    scalePatternRuns: [],
   };
 }
 
@@ -55,6 +60,16 @@ function normalizeRuns(runs: PracticeRun[]): PracticeRun[] {
 }
 
 function normalizeNoteMapRuns(runs: NoteMapRun[]): NoteMapRun[] {
+  return [...runs]
+    .filter((run) => run && Array.isArray(run.questions))
+    .sort(
+      (a, b) =>
+        new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()
+    )
+    .slice(0, MAX_HISTORY_RUNS);
+}
+
+function normalizeScalePatternRuns(runs: ScalePatternRun[]): ScalePatternRun[] {
   return [...runs]
     .filter((run) => run && Array.isArray(run.questions))
     .sort(
@@ -80,17 +95,24 @@ function parseV1Runs(raw: string | null): PracticeRun[] {
 function createMemoryFromRuns(
   runs: PracticeRun[],
   noteMapRuns: NoteMapRun[] = [],
+  scalePatternRuns: ScalePatternRun[] = [],
   createdAt?: string,
   updatedAt?: string
 ): PracticeMemory {
   const now = new Date().toISOString();
 
   return {
-    schemaVersion: 3,
-    createdAt: createdAt ?? runs[runs.length - 1]?.completedAt ?? noteMapRuns[noteMapRuns.length - 1]?.completedAt ?? now,
+    schemaVersion: 4,
+    createdAt:
+      createdAt ??
+      runs[runs.length - 1]?.completedAt ??
+      noteMapRuns[noteMapRuns.length - 1]?.completedAt ??
+      scalePatternRuns[scalePatternRuns.length - 1]?.completedAt ??
+      now,
     updatedAt: updatedAt ?? now,
     runs: normalizeRuns(runs),
     noteMapRuns: normalizeNoteMapRuns(noteMapRuns),
+    scalePatternRuns: normalizeScalePatternRuns(scalePatternRuns),
   };
 }
 
@@ -113,13 +135,38 @@ export function loadPracticeMemory(): PracticeMemory {
     try {
       const parsed = JSON.parse(rawMemory) as StoredPracticeMemory;
 
-      if (parsed.schemaVersion === 3 && Array.isArray(parsed.runs)) {
+      if (parsed.schemaVersion === 4 && Array.isArray(parsed.runs)) {
         return createMemoryFromRuns(
           parsed.runs,
           Array.isArray(parsed.noteMapRuns) ? parsed.noteMapRuns : [],
+          Array.isArray(parsed.scalePatternRuns) ? parsed.scalePatternRuns : [],
           parsed.createdAt ?? empty.createdAt,
           parsed.updatedAt ?? empty.updatedAt
         );
+      }
+    } catch {
+      return empty;
+    }
+  }
+
+  const rawV3Memory = window.localStorage.getItem(LEGACY_V3_MEMORY_STORAGE_KEY);
+
+  if (rawV3Memory) {
+    try {
+      const parsed = JSON.parse(rawV3Memory) as StoredPracticeMemory;
+
+      if (parsed.schemaVersion === 3 && Array.isArray(parsed.runs)) {
+        const migrated = createMemoryFromRuns(
+          parsed.runs,
+          Array.isArray(parsed.noteMapRuns) ? parsed.noteMapRuns : [],
+          [],
+          parsed.createdAt ?? empty.createdAt,
+          new Date().toISOString()
+        );
+
+        persistPracticeMemory(migrated);
+
+        return migrated;
       }
     } catch {
       return empty;
@@ -135,6 +182,7 @@ export function loadPracticeMemory(): PracticeMemory {
       if (parsed.schemaVersion === 2 && Array.isArray(parsed.runs)) {
         const migrated = createMemoryFromRuns(
           parsed.runs,
+          [],
           [],
           parsed.createdAt ?? empty.createdAt,
           new Date().toISOString()
@@ -157,6 +205,7 @@ export function loadPracticeMemory(): PracticeMemory {
 
   const migratedMemory = createMemoryFromRuns(
     migratedRuns,
+    [],
     [],
     migratedRuns[migratedRuns.length - 1].completedAt ?? empty.createdAt,
     new Date().toISOString()
@@ -197,10 +246,24 @@ export function saveNoteMapRun(run: NoteMapRun): PracticeMemory {
   return nextMemory;
 }
 
+export function saveScalePatternRun(run: ScalePatternRun): PracticeMemory {
+  const memory = loadPracticeMemory();
+  const nextMemory: PracticeMemory = {
+    ...memory,
+    updatedAt: new Date().toISOString(),
+    scalePatternRuns: normalizeScalePatternRuns([run, ...memory.scalePatternRuns]),
+  };
+
+  persistPracticeMemory(nextMemory);
+
+  return nextMemory;
+}
+
 export function clearPracticeRuns(): void {
   if (canUseStorage()) {
     window.localStorage.removeItem(HISTORY_STORAGE_KEY);
     window.localStorage.removeItem(LEGACY_MEMORY_STORAGE_KEY);
+    window.localStorage.removeItem(LEGACY_V3_MEMORY_STORAGE_KEY);
     window.localStorage.removeItem(MEMORY_STORAGE_KEY);
   }
 }

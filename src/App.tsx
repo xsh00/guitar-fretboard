@@ -11,7 +11,7 @@ import {
   Timer,
   Trophy,
 } from "lucide-react";
-import { Fretboard } from "./components/Fretboard";
+import { Fretboard, FretboardMarker } from "./components/Fretboard";
 import {
   DEFAULT_CONFIG,
   FretboardPosition,
@@ -42,12 +42,26 @@ import {
   isDuplicateCorrectClick,
   isNoteMapQuestionComplete,
 } from "./domain/noteMap";
+import {
+  SCALE_PATTERN_FRETS,
+  ScalePatternClick,
+  ScalePatternQuestion,
+  ScalePatternQuestionResult,
+  ScalePatternRun,
+  createScalePatternClick,
+  createScalePatternRunSummary,
+  createScalePatternSession,
+  getScalePatternStepIndex,
+  isScalePatternQuestionComplete,
+} from "./domain/scalePattern";
 import { createProgressSummary, createWeakPointStats } from "./domain/analytics";
 import {
   createAnswerCsvExport,
   createJsonExport,
   createNoteMapClickCsvExport,
   createNoteMapWeakPointCsvExport,
+  createScalePatternClickCsvExport,
+  createScalePatternWeakPointCsvExport,
   createWeakPointCsvExport,
 } from "./domain/export";
 import {
@@ -55,6 +69,7 @@ import {
   loadPracticeMemory,
   saveNoteMapRun,
   savePracticeRun,
+  saveScalePatternRun,
 } from "./domain/storage";
 
 type Feedback =
@@ -67,13 +82,15 @@ type AppProps = {
   rng?: () => number;
 };
 
-type AppMode = "position-to-note" | "note-map";
+type AppMode = "position-to-note" | "note-map" | "scale-pattern";
 type ExportFormat =
   | "json"
   | "answers-csv"
   | "weak-points-csv"
   | "note-map-clicks-csv"
-  | "note-map-weak-points-csv";
+  | "note-map-weak-points-csv"
+  | "scale-pattern-clicks-csv"
+  | "scale-pattern-weak-points-csv";
 
 function formatMs(value: number): string {
   if (!value) {
@@ -85,6 +102,10 @@ function formatMs(value: number): string {
 
 function formatPercent(value: number): string {
   return `${Math.round(value * 100)}%`;
+}
+
+function formatDirection(direction: "ascending" | "descending"): string {
+  return direction === "ascending" ? "上行" : "下行";
 }
 
 function makeRunId(): string {
@@ -243,6 +264,24 @@ export function App({ rng = Math.random }: AppProps) {
       return;
     }
 
+    if (format === "scale-pattern-clicks-csv") {
+      downloadTextFile(
+        `fretboard-scale-pattern-clicks-${stamp}.csv`,
+        `\uFEFF${createScalePatternClickCsvExport(memory)}`,
+        "text/csv;charset=utf-8"
+      );
+      return;
+    }
+
+    if (format === "scale-pattern-weak-points-csv") {
+      downloadTextFile(
+        `fretboard-scale-pattern-weak-points-${stamp}.csv`,
+        `\uFEFF${createScalePatternWeakPointCsvExport(memory)}`,
+        "text/csv;charset=utf-8"
+      );
+      return;
+    }
+
     downloadTextFile(
       `fretboard-weak-points-${stamp}.csv`,
       `\uFEFF${createWeakPointCsvExport(memory)}`,
@@ -325,14 +364,22 @@ export function App({ rng = Math.random }: AppProps) {
         </header>
 
         {screen === "ready" ? (
-          mode === "note-map" ? (
+          mode === "scale-pattern" ? (
+            <ScalePatternPractice
+              memory={memory}
+              rng={rng}
+              onExport={handleExport}
+              onMemoryChange={setMemory}
+              onModeChange={setMode}
+            />
+          ) : mode === "note-map" ? (
             <NoteMapPractice
               config={config}
               memory={memory}
               rng={rng}
-              onBack={resetPractice}
               onExport={handleExport}
               onMemoryChange={setMemory}
+              onModeChange={setMode}
             />
           ) : (
             <ReadyPanel
@@ -463,6 +510,13 @@ function ModeSwitch({ mode, onModeChange }: ModeSwitchProps) {
       >
         音名地图
       </button>
+      <button
+        className={mode === "scale-pattern" ? "is-selected" : ""}
+        type="button"
+        onClick={() => onModeChange("scale-pattern")}
+      >
+        C大调把位
+      </button>
     </div>
   );
 }
@@ -471,9 +525,9 @@ type NoteMapPracticeProps = {
   config: PracticeConfig;
   memory: PracticeMemory;
   rng: () => number;
-  onBack: () => void;
   onExport: (format: ExportFormat) => void;
   onMemoryChange: (memory: PracticeMemory) => void;
+  onModeChange: (mode: AppMode) => void;
 };
 
 type NoteMapScreen = "ready" | "question" | "question-review" | "run-review";
@@ -482,9 +536,9 @@ function NoteMapPractice({
   config,
   memory,
   rng,
-  onBack,
   onExport,
   onMemoryChange,
+  onModeChange,
 }: NoteMapPracticeProps) {
   const [screen, setScreen] = useState<NoteMapScreen>("ready");
   const [questions, setQuestions] = useState<NoteMapQuestion[]>([]);
@@ -620,8 +674,8 @@ function NoteMapPractice({
           <p className="eyebrow">Note Map</p>
           <h2>音名地图</h2>
           <ModeSwitch mode="note-map" onModeChange={(nextMode) => {
-            if (nextMode === "position-to-note") {
-              onBack();
+            if (nextMode !== "note-map") {
+              onModeChange(nextMode);
             }
           }} />
         </div>
@@ -787,6 +841,422 @@ function NoteMapRunReview({ run, onExport, onRestart }: NoteMapRunReviewProps) {
   );
 }
 
+type ScalePatternPracticeProps = {
+  memory: PracticeMemory;
+  rng: () => number;
+  onExport: (format: ExportFormat) => void;
+  onMemoryChange: (memory: PracticeMemory) => void;
+  onModeChange: (mode: AppMode) => void;
+};
+
+type ScalePatternScreen =
+  | "ready"
+  | "answer"
+  | "recall"
+  | "question-review"
+  | "run-review";
+
+function makeScaleAnswerMarkers(question: ScalePatternQuestion): Record<string, FretboardMarker> {
+  return Object.fromEntries(
+    question.ascendingSteps.map((step) => [
+      positionKey(step.position),
+      { tone: "answer", label: step.noteName } satisfies FretboardMarker,
+    ])
+  );
+}
+
+function groupScaleStepsByString(question: ScalePatternQuestion) {
+  return [6, 5, 4, 3, 2, 1].map((string) => ({
+    string,
+    steps: question.ascendingSteps.filter((step) => step.position.string === string),
+  }));
+}
+
+function ScalePatternPractice({
+  memory,
+  rng,
+  onExport,
+  onMemoryChange,
+  onModeChange,
+}: ScalePatternPracticeProps) {
+  const [screen, setScreen] = useState<ScalePatternScreen>("ready");
+  const [questions, setQuestions] = useState<ScalePatternQuestion[]>([]);
+  const [questionIndex, setQuestionIndex] = useState(0);
+  const [clicks, setClicks] = useState<ScalePatternClick[]>([]);
+  const [results, setResults] = useState<ScalePatternQuestionResult[]>([]);
+  const [questionStartedAt, setQuestionStartedAt] = useState<number | null>(null);
+  const [questionStartedAtIso, setQuestionStartedAtIso] = useState<string | null>(null);
+  const [runStartedAtIso, setRunStartedAtIso] = useState<string | null>(null);
+  const [lastWrongKey, setLastWrongKey] = useState<string | null>(null);
+  const [savedRun, setSavedRun] = useState<ScalePatternRun | null>(null);
+
+  const currentQuestion = questions[questionIndex] ?? null;
+  const currentStepIndex = useMemo(() => getScalePatternStepIndex(clicks), [clicks]);
+  const lastResult = results[results.length - 1] ?? null;
+
+  function startScalePattern() {
+    const now = new Date().toISOString();
+
+    setQuestions(createScalePatternSession(rng));
+    setQuestionIndex(0);
+    setClicks([]);
+    setResults([]);
+    setSavedRun(null);
+    setRunStartedAtIso(now);
+    setQuestionStartedAtIso(null);
+    setQuestionStartedAt(null);
+    setLastWrongKey(null);
+    setScreen("answer");
+  }
+
+  function startRecall() {
+    const now = new Date().toISOString();
+
+    setClicks([]);
+    setLastWrongKey(null);
+    setQuestionStartedAtIso(now);
+    setQuestionStartedAt(performance.now());
+    setScreen("recall");
+  }
+
+  function finishQuestion(nextClicks: ScalePatternClick[]) {
+    if (!currentQuestion || !questionStartedAtIso || questionStartedAt === null) {
+      return;
+    }
+
+    const result: ScalePatternQuestionResult = {
+      question: currentQuestion,
+      clicks: nextClicks,
+      startedAt: questionStartedAtIso,
+      completedAt: new Date().toISOString(),
+      totalElapsedMs: Math.max(1, Math.round(performance.now() - questionStartedAt)),
+    };
+
+    setResults((current) => [...current, result]);
+    setScreen("question-review");
+  }
+
+  function handlePositionClick(position: FretboardPosition) {
+    if (screen !== "recall" || !currentQuestion || questionStartedAt === null) {
+      return;
+    }
+
+    const click = createScalePatternClick(
+      currentQuestion,
+      clicks,
+      position,
+      performance.now() - questionStartedAt
+    );
+    const nextClicks = [...clicks, click];
+
+    setClicks(nextClicks);
+
+    if (!click.correct) {
+      const wrongKey = positionKey(position);
+      setLastWrongKey(wrongKey);
+      window.setTimeout(() => {
+        setLastWrongKey((current) => (current === wrongKey ? null : current));
+      }, 900);
+      return;
+    }
+
+    if (isScalePatternQuestionComplete(currentQuestion, nextClicks)) {
+      finishQuestion(nextClicks);
+    }
+  }
+
+  function goNextQuestion() {
+    if (questionIndex >= questions.length - 1) {
+      const completedAt = new Date().toISOString();
+      const run: ScalePatternRun = {
+        id: makeRunId(),
+        startedAt: runStartedAtIso ?? completedAt,
+        completedAt,
+        questions: results,
+      };
+
+      setSavedRun(run);
+      onMemoryChange(saveScalePatternRun(run));
+      setScreen("run-review");
+      return;
+    }
+
+    setQuestionIndex((current) => current + 1);
+    setClicks([]);
+    setLastWrongKey(null);
+    setQuestionStartedAtIso(null);
+    setQuestionStartedAt(null);
+    setScreen("answer");
+  }
+
+  const markerMap = useMemo(() => {
+    const markers: Record<string, FretboardMarker> = {};
+
+    if (screen === "answer" && currentQuestion) {
+      return makeScaleAnswerMarkers(currentQuestion);
+    }
+
+    if (screen === "question-review" && lastResult) {
+      return makeScaleAnswerMarkers(lastResult.question);
+    }
+
+    for (const click of clicks) {
+      if (click.correct) {
+        markers[positionKey(click.position)] = "found";
+      }
+    }
+
+    if (lastWrongKey) {
+      markers[lastWrongKey] = "wrong";
+    }
+
+    return markers;
+  }, [clicks, currentQuestion, lastResult, lastWrongKey, screen]);
+
+  return (
+    <section className="note-map-panel scale-pattern-panel" aria-label="C大调把位练习">
+      <div className="note-map-head">
+        <div>
+          <p className="eyebrow">C Major Positions</p>
+          <h2>C大调把位</h2>
+          <ModeSwitch
+            mode="scale-pattern"
+            onModeChange={(nextMode) => {
+              if (nextMode !== "scale-pattern") {
+                onModeChange(nextMode);
+              }
+            }}
+          />
+        </div>
+
+        {screen === "ready" ? (
+          <button className="start-button" type="button" onClick={startScalePattern}>
+            <Play size={20} fill="currentColor" strokeWidth={2.2} />
+            开始 14 项
+          </button>
+        ) : null}
+      </div>
+
+      {screen === "ready" ? (
+        <>
+          <div className="ready-tags" aria-label="C大调把位配置">
+            <span>7 个起始音</span>
+            <span>上行 + 下行</span>
+            <span>1-16 品</span>
+            <span>严格顺序</span>
+          </div>
+          <div className="fretboard-scroll ready-board">
+            <Fretboard frets={SCALE_PATTERN_FRETS} />
+          </div>
+          <PracticeMemoryPanel memory={memory} onExport={onExport} />
+        </>
+      ) : null}
+
+      {screen === "answer" && currentQuestion ? (
+        <>
+          <div className="note-map-status scale-pattern-status">
+            <div>
+              <span>起始音</span>
+              <strong>{currentQuestion.start.noteName}</strong>
+            </div>
+            <div>
+              <span>方向</span>
+              <strong>{formatDirection(currentQuestion.direction)}</strong>
+            </div>
+            <div>
+              <span>项目</span>
+              <strong>{questionIndex + 1}/14</strong>
+            </div>
+            <div>
+              <span>音符</span>
+              <strong>{currentQuestion.steps.length}</strong>
+            </div>
+          </div>
+          <ScalePatternStringMap question={currentQuestion} />
+          <div className="fretboard-scroll">
+            <Fretboard frets={SCALE_PATTERN_FRETS} markers={markerMap} />
+          </div>
+          <button className="start-button scale-start-recall" type="button" onClick={startRecall}>
+            <Play size={20} fill="currentColor" strokeWidth={2.2} />
+            开始回忆
+          </button>
+        </>
+      ) : null}
+
+      {screen === "recall" && currentQuestion ? (
+        <>
+          <div className="note-map-status scale-pattern-status">
+            <div>
+              <span>起始音</span>
+              <strong>{currentQuestion.start.noteName}</strong>
+            </div>
+            <div>
+              <span>方向</span>
+              <strong>{formatDirection(currentQuestion.direction)}</strong>
+            </div>
+            <div>
+              <span>步骤</span>
+              <strong>
+                {Math.min(currentStepIndex + 1, currentQuestion.steps.length)}/
+                {currentQuestion.steps.length}
+              </strong>
+            </div>
+            <div>
+              <span>错点</span>
+              <strong>{clicks.filter((click) => !click.correct).length}</strong>
+            </div>
+          </div>
+          <div className="fretboard-scroll">
+            <Fretboard
+              frets={SCALE_PATTERN_FRETS}
+              markers={markerMap}
+              onPositionClick={handlePositionClick}
+            />
+          </div>
+          <div className="feedback" role="status">
+            {lastWrongKey ? "这个位置不是当前步骤" : " "}
+          </div>
+        </>
+      ) : null}
+
+      {screen === "question-review" && lastResult ? (
+        <ScalePatternQuestionReview
+          result={lastResult}
+          isLast={questionIndex >= questions.length - 1}
+          onNext={goNextQuestion}
+        />
+      ) : null}
+
+      {screen === "run-review" && savedRun ? (
+        <ScalePatternRunReview run={savedRun} onExport={onExport} onRestart={startScalePattern} />
+      ) : null}
+    </section>
+  );
+}
+
+type ScalePatternStringMapProps = {
+  question: ScalePatternQuestion;
+};
+
+function ScalePatternStringMap({ question }: ScalePatternStringMapProps) {
+  return (
+    <div className="scale-string-map" aria-label="把位音名">
+      {groupScaleStepsByString(question).map((row) => (
+        <div className="scale-string-row" key={row.string}>
+          <span>{row.string}弦</span>
+          <strong>{row.steps.map((step) => step.noteName).join(" ")}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+type ScalePatternQuestionReviewProps = {
+  result: ScalePatternQuestionResult;
+  isLast: boolean;
+  onNext: () => void;
+};
+
+function ScalePatternQuestionReview({
+  result,
+  isLast,
+  onNext,
+}: ScalePatternQuestionReviewProps) {
+  const wrongClicks = result.clicks.filter((click) => !click.correct).length;
+  const markers = makeScaleAnswerMarkers(result.question);
+
+  return (
+    <section className="note-map-review" aria-label="C大调把位短复盘">
+      <div className="review-heading">
+        <div>
+          <p className="eyebrow">Pattern Review</p>
+          <h2>
+            {result.question.start.noteName} · {formatDirection(result.question.direction)}
+          </h2>
+        </div>
+        <button className="submit-button compact" type="button" onClick={onNext}>
+          {isLast ? "完成整轮" : "下一项目"}
+        </button>
+      </div>
+      <div className="metric-strip review-metrics">
+        <Metric icon={<Timer size={18} />} label="用时" value={formatMs(result.totalElapsedMs)} />
+        <Metric icon={<Activity size={18} />} label="步骤" value={`${result.question.steps.length}`} />
+        <Metric icon={<Flame size={18} />} label="错点" value={`${wrongClicks}`} />
+        <Metric icon={<Trophy size={18} />} label="点击" value={`${result.clicks.length}`} />
+      </div>
+      <ScalePatternStringMap question={result.question} />
+      <div className="fretboard-scroll">
+        <Fretboard frets={SCALE_PATTERN_FRETS} markers={markers} />
+      </div>
+    </section>
+  );
+}
+
+type ScalePatternRunReviewProps = {
+  run: ScalePatternRun;
+  onExport: (format: ExportFormat) => void;
+  onRestart: () => void;
+};
+
+function ScalePatternRunReview({ run, onExport, onRestart }: ScalePatternRunReviewProps) {
+  const summary = createScalePatternRunSummary(run);
+
+  return (
+    <section className="note-map-review" aria-label="C大调把位整轮复盘">
+      <div className="review-heading">
+        <div>
+          <p className="eyebrow">Scale Complete</p>
+          <h2>C大调把位复盘</h2>
+        </div>
+        <button className="submit-button compact" type="button" onClick={onRestart}>
+          再练一轮
+        </button>
+      </div>
+      <div className="metric-strip review-metrics">
+        <Metric icon={<Activity size={18} />} label="项目" value={`${summary.questionCount}`} />
+        <Metric icon={<Timer size={18} />} label="平均每项" value={formatMs(summary.averageQuestionMs)} />
+        <Metric icon={<Flame size={18} />} label="总错点" value={`${summary.wrongClicks}`} />
+        <Metric
+          icon={<Trophy size={18} />}
+          label="最弱把位"
+          value={
+            summary.weakestStartNote && summary.weakestDirection
+              ? `${summary.weakestStartNote} ${formatDirection(summary.weakestDirection)}`
+              : "-"
+          }
+        />
+      </div>
+      <section className="review-list">
+        <h3>每个项目</h3>
+        {summary.questionSummaries.map((question) => (
+          <div className="review-row" key={question.question.id}>
+            <span>
+              {question.question.start.noteName} · {formatDirection(question.question.direction)}
+            </span>
+            <strong>
+              {formatMs(question.totalElapsedMs)} · 错 {question.wrongClicks}
+            </strong>
+          </div>
+        ))}
+      </section>
+      <div className="export-actions note-map-export">
+        <ExportButton
+          icon={<Table size={16} />}
+          label="C大调把位明细 CSV"
+          title="导出 C 大调把位明细 CSV"
+          onClick={() => onExport("scale-pattern-clicks-csv")}
+        />
+        <ExportButton
+          icon={<Download size={16} />}
+          label="C大调把位弱点 CSV"
+          title="导出 C 大调把位弱点 CSV"
+          onClick={() => onExport("scale-pattern-weak-points-csv")}
+        />
+      </div>
+    </section>
+  );
+}
+
 type PracticeMemoryPanelProps = {
   compact?: boolean;
   memory: PracticeMemory;
@@ -838,6 +1308,18 @@ function PracticeMemoryPanel({ compact = false, memory, onExport }: PracticeMemo
             label="地图弱点 CSV"
             title="导出音名地图弱点 CSV"
             onClick={() => onExport("note-map-weak-points-csv")}
+          />
+          <ExportButton
+            icon={<Table size={16} />}
+            label="把位明细 CSV"
+            title="导出 C 大调把位明细 CSV"
+            onClick={() => onExport("scale-pattern-clicks-csv")}
+          />
+          <ExportButton
+            icon={<Download size={16} />}
+            label="把位弱点 CSV"
+            title="导出 C 大调把位弱点 CSV"
+            onClick={() => onExport("scale-pattern-weak-points-csv")}
           />
         </div>
       </div>

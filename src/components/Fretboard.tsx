@@ -10,13 +10,22 @@ import {
 import { PositionStat } from "../domain/practice";
 
 const DISPLAY_STRINGS: GuitarString[] = [1, 2, 3, 4, 5, 6];
-const FRETS = Array.from({ length: 12 }, (_, index) => index + 1);
-const MARKER_FRETS = new Set([3, 5, 7, 9, 12]);
+const DEFAULT_FRETS = Array.from({ length: 12 }, (_, index) => index + 1);
+const MARKER_FRETS = new Set([3, 5, 7, 9, 12, 15]);
+
+export type FretboardMarkerTone = "found" | "wrong" | "answer";
+export type FretboardMarker =
+  | FretboardMarkerTone
+  | {
+      tone: FretboardMarkerTone;
+      label?: string;
+    };
 
 type FretboardProps = {
   current?: FretboardPosition;
+  frets?: number[];
   heatmap?: PositionStat[];
-  markers?: Record<string, "found" | "wrong" | "answer">;
+  markers?: Record<string, FretboardMarker>;
   onPositionClick?: (position: FretboardPosition) => void;
 };
 
@@ -28,15 +37,33 @@ function getHeatForPosition(position: Pick<FretboardPosition, "string" | "fret">
   return heatmap.find((stat) => positionKey(stat.position) === positionKey(position));
 }
 
-export function Fretboard({ current, heatmap, markers, onPositionClick }: FretboardProps) {
+function normalizeMarker(marker: FretboardMarker | undefined) {
+  if (!marker) {
+    return null;
+  }
+
+  return typeof marker === "string" ? { tone: marker, label: undefined } : marker;
+}
+
+export function Fretboard({
+  current,
+  frets = DEFAULT_FRETS,
+  heatmap,
+  markers,
+  onPositionClick,
+}: FretboardProps) {
   const strongestScore = heatmap?.[0]?.score ?? 0;
   const isInteractive = Boolean(onPositionClick);
 
   return (
-    <div className="fretboard-shell" aria-label="六弦十二品指板">
+    <div
+      className="fretboard-shell"
+      aria-label="六弦指板"
+      style={{ "--fret-count": frets.length } as CSSProperties}
+    >
       <div className="fret-numbers" aria-hidden="true">
         <span />
-        {FRETS.map((fret) => (
+        {frets.map((fret) => (
           <span key={fret}>{fret}</span>
         ))}
       </div>
@@ -45,14 +72,14 @@ export function Fretboard({ current, heatmap, markers, onPositionClick }: Fretbo
         {DISPLAY_STRINGS.map((string) => (
           <div className="string-row" key={string}>
             <div className="string-label">{STRING_LABELS[string]}</div>
-            {FRETS.map((fret) => {
+            {frets.map((fret) => {
               const position = {
                 string,
                 fret,
                 pitchClass: getPitchClassForPosition(string, fret),
               };
               const key = positionKey(position);
-              const marker = markers?.[key];
+              const marker = normalizeMarker(markers?.[key]);
               const isCurrent =
                 current?.string === string && current?.fret === fret;
               const stat = getHeatForPosition(position, heatmap);
@@ -69,7 +96,8 @@ export function Fretboard({ current, heatmap, markers, onPositionClick }: Fretbo
                     "fret-cell",
                     isInteractive ? "is-interactive" : "",
                     isCurrent ? "is-current" : "",
-                    marker ? `marker-${marker}` : "",
+                    marker ? `marker-${marker.tone}` : "",
+                    marker?.label ? "has-marker-label" : "",
                     stat ? "has-heat" : "",
                     stat?.mistakes ? "has-mistake" : "",
                   ]
@@ -102,7 +130,13 @@ export function Fretboard({ current, heatmap, markers, onPositionClick }: Fretbo
                   <span className="string-line" />
                   {MARKER_FRETS.has(fret) ? <span className="fret-marker" /> : null}
                   {isCurrent ? <span className="target-dot" aria-hidden="true" /> : null}
-                  {marker ? <span className="map-dot" aria-hidden="true" /> : null}
+                  {marker ? (
+                    <span className="map-dot" aria-hidden="true">
+                      {marker.label ? (
+                        <span className="map-dot-label">{marker.label}</span>
+                      ) : null}
+                    </span>
+                  ) : null}
                 </div>
               );
             })}

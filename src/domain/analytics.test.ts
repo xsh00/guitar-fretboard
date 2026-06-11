@@ -3,9 +3,16 @@ import { DEFAULT_CONFIG } from "./fretboard";
 import { PracticeRun, generateQuestionSequence } from "./practice";
 import { NoteMapRun, createNoteMapClick, createNoteMapQuestion } from "./noteMap";
 import {
+  ScalePatternRun,
+  SCALE_PATTERN_STARTS,
+  createScalePatternClick,
+  createScalePatternQuestion,
+} from "./scalePattern";
+import {
   createNoteMapWeakPointStats,
   createProgressSummary,
   createRunTrend,
+  createScalePatternWeakPointStats,
   createWeakPointStats,
 } from "./analytics";
 
@@ -106,5 +113,46 @@ describe("practice analytics", () => {
     });
     expect(weakPoints.byString.length).toBeGreaterThan(0);
     expect(weakPoints.byNoteString.length).toBeGreaterThan(0);
+  });
+
+  it("summarizes scale-pattern weak points by start, direction, string, and step", () => {
+    const question = createScalePatternQuestion(SCALE_PATTERN_STARTS[0], "ascending");
+    const wrongClick = createScalePatternClick(
+      question,
+      [],
+      question.steps[1].position,
+      1200
+    );
+    const correctClick = createScalePatternClick(
+      question,
+      [],
+      question.steps[0].position,
+      800
+    );
+    const run: ScalePatternRun = {
+      id: "scale-pattern-run",
+      startedAt: "2026-06-10T00:00:00.000Z",
+      completedAt: "2026-06-10T00:01:00.000Z",
+      questions: [
+        {
+          question,
+          clicks: [wrongClick, correctClick],
+          startedAt: "2026-06-10T00:00:00.000Z",
+          completedAt: "2026-06-10T00:00:05.000Z",
+          totalElapsedMs: 5000,
+        },
+      ],
+    };
+
+    const weakPoints = createScalePatternWeakPointStats([run]);
+
+    expect(weakPoints.byStartNote[0]).toMatchObject({
+      dimension: "start-note",
+      startNote: "F",
+      wrongClicks: 1,
+    });
+    expect(weakPoints.byDirection[0].direction).toBe("ascending");
+    expect(weakPoints.byString.length).toBeGreaterThan(0);
+    expect(weakPoints.byStep[0].stepIndex).toBe(1);
   });
 });
