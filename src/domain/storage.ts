@@ -1,20 +1,23 @@
 import { PracticeRun } from "./practice";
 import { NoteMapRun } from "./noteMap";
 import { ScalePatternRun } from "./scalePattern";
+import { ChordArpeggioRun } from "./chordArpeggio";
 
 export const HISTORY_STORAGE_KEY = "fretboard-reaction-history-v1";
 export const LEGACY_MEMORY_STORAGE_KEY = "fretboard-reaction-memory-v2";
 export const LEGACY_V3_MEMORY_STORAGE_KEY = "fretboard-reaction-memory-v3";
-export const MEMORY_STORAGE_KEY = "fretboard-reaction-memory-v4";
+export const LEGACY_V4_MEMORY_STORAGE_KEY = "fretboard-reaction-memory-v4";
+export const MEMORY_STORAGE_KEY = "fretboard-reaction-memory-v5";
 const MAX_HISTORY_RUNS = 365;
 
 export type PracticeMemory = {
-  schemaVersion: 4;
+  schemaVersion: 5;
   createdAt: string;
   updatedAt: string;
   runs: PracticeRun[];
   noteMapRuns: NoteMapRun[];
   scalePatternRuns: ScalePatternRun[];
+  chordArpeggioRuns: ChordArpeggioRun[];
 };
 
 type StoredPracticeMemory = {
@@ -24,6 +27,7 @@ type StoredPracticeMemory = {
   runs?: PracticeRun[];
   noteMapRuns?: NoteMapRun[];
   scalePatternRuns?: ScalePatternRun[];
+  chordArpeggioRuns?: ChordArpeggioRun[];
 };
 
 function canUseStorage(): boolean {
@@ -40,12 +44,13 @@ function createEmptyMemory(): PracticeMemory {
   const now = new Date().toISOString();
 
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     createdAt: now,
     updatedAt: now,
     runs: [],
     noteMapRuns: [],
     scalePatternRuns: [],
+    chordArpeggioRuns: [],
   };
 }
 
@@ -79,6 +84,16 @@ function normalizeScalePatternRuns(runs: ScalePatternRun[]): ScalePatternRun[] {
     .slice(0, MAX_HISTORY_RUNS);
 }
 
+function normalizeChordArpeggioRuns(runs: ChordArpeggioRun[]): ChordArpeggioRun[] {
+  return [...runs]
+    .filter((run) => run && Array.isArray(run.questions))
+    .sort(
+      (a, b) =>
+        new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()
+    )
+    .slice(0, MAX_HISTORY_RUNS);
+}
+
 function parseV1Runs(raw: string | null): PracticeRun[] {
   if (!raw) {
     return [];
@@ -96,23 +111,26 @@ function createMemoryFromRuns(
   runs: PracticeRun[],
   noteMapRuns: NoteMapRun[] = [],
   scalePatternRuns: ScalePatternRun[] = [],
+  chordArpeggioRuns: ChordArpeggioRun[] = [],
   createdAt?: string,
   updatedAt?: string
 ): PracticeMemory {
   const now = new Date().toISOString();
 
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     createdAt:
       createdAt ??
       runs[runs.length - 1]?.completedAt ??
       noteMapRuns[noteMapRuns.length - 1]?.completedAt ??
       scalePatternRuns[scalePatternRuns.length - 1]?.completedAt ??
+      chordArpeggioRuns[chordArpeggioRuns.length - 1]?.completedAt ??
       now,
     updatedAt: updatedAt ?? now,
     runs: normalizeRuns(runs),
     noteMapRuns: normalizeNoteMapRuns(noteMapRuns),
     scalePatternRuns: normalizeScalePatternRuns(scalePatternRuns),
+    chordArpeggioRuns: normalizeChordArpeggioRuns(chordArpeggioRuns),
   };
 }
 
@@ -135,14 +153,40 @@ export function loadPracticeMemory(): PracticeMemory {
     try {
       const parsed = JSON.parse(rawMemory) as StoredPracticeMemory;
 
-      if (parsed.schemaVersion === 4 && Array.isArray(parsed.runs)) {
+      if (parsed.schemaVersion === 5 && Array.isArray(parsed.runs)) {
         return createMemoryFromRuns(
           parsed.runs,
           Array.isArray(parsed.noteMapRuns) ? parsed.noteMapRuns : [],
           Array.isArray(parsed.scalePatternRuns) ? parsed.scalePatternRuns : [],
+          Array.isArray(parsed.chordArpeggioRuns) ? parsed.chordArpeggioRuns : [],
           parsed.createdAt ?? empty.createdAt,
           parsed.updatedAt ?? empty.updatedAt
         );
+      }
+    } catch {
+      return empty;
+    }
+  }
+
+  const rawV4Memory = window.localStorage.getItem(LEGACY_V4_MEMORY_STORAGE_KEY);
+
+  if (rawV4Memory) {
+    try {
+      const parsed = JSON.parse(rawV4Memory) as StoredPracticeMemory;
+
+      if (parsed.schemaVersion === 4 && Array.isArray(parsed.runs)) {
+        const migrated = createMemoryFromRuns(
+          parsed.runs,
+          Array.isArray(parsed.noteMapRuns) ? parsed.noteMapRuns : [],
+          Array.isArray(parsed.scalePatternRuns) ? parsed.scalePatternRuns : [],
+          [],
+          parsed.createdAt ?? empty.createdAt,
+          new Date().toISOString()
+        );
+
+        persistPracticeMemory(migrated);
+
+        return migrated;
       }
     } catch {
       return empty;
@@ -159,6 +203,7 @@ export function loadPracticeMemory(): PracticeMemory {
         const migrated = createMemoryFromRuns(
           parsed.runs,
           Array.isArray(parsed.noteMapRuns) ? parsed.noteMapRuns : [],
+          [],
           [],
           parsed.createdAt ?? empty.createdAt,
           new Date().toISOString()
@@ -184,6 +229,7 @@ export function loadPracticeMemory(): PracticeMemory {
           parsed.runs,
           [],
           [],
+          [],
           parsed.createdAt ?? empty.createdAt,
           new Date().toISOString()
         );
@@ -205,6 +251,7 @@ export function loadPracticeMemory(): PracticeMemory {
 
   const migratedMemory = createMemoryFromRuns(
     migratedRuns,
+    [],
     [],
     [],
     migratedRuns[migratedRuns.length - 1].completedAt ?? empty.createdAt,
@@ -259,11 +306,28 @@ export function saveScalePatternRun(run: ScalePatternRun): PracticeMemory {
   return nextMemory;
 }
 
+export function saveChordArpeggioRun(run: ChordArpeggioRun): PracticeMemory {
+  const memory = loadPracticeMemory();
+  const nextMemory: PracticeMemory = {
+    ...memory,
+    updatedAt: new Date().toISOString(),
+    chordArpeggioRuns: normalizeChordArpeggioRuns([
+      run,
+      ...memory.chordArpeggioRuns,
+    ]),
+  };
+
+  persistPracticeMemory(nextMemory);
+
+  return nextMemory;
+}
+
 export function clearPracticeRuns(): void {
   if (canUseStorage()) {
     window.localStorage.removeItem(HISTORY_STORAGE_KEY);
     window.localStorage.removeItem(LEGACY_MEMORY_STORAGE_KEY);
     window.localStorage.removeItem(LEGACY_V3_MEMORY_STORAGE_KEY);
+    window.localStorage.removeItem(LEGACY_V4_MEMORY_STORAGE_KEY);
     window.localStorage.removeItem(MEMORY_STORAGE_KEY);
   }
 }

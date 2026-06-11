@@ -54,9 +54,25 @@ import {
   getScalePatternStepIndex,
   isScalePatternQuestionComplete,
 } from "./domain/scalePattern";
+import {
+  CHORD_ARPEGGIO_CHORDS,
+  CHORD_ARPEGGIO_FRETS,
+  ChordArpeggioChord,
+  ChordArpeggioClick,
+  ChordArpeggioQuestion,
+  ChordArpeggioQuestionResult,
+  ChordArpeggioRun,
+  createChordArpeggioClick,
+  createChordArpeggioRunSummary,
+  createChordArpeggioSession,
+  getChordArpeggioStepIndex,
+  isChordArpeggioQuestionComplete,
+} from "./domain/chordArpeggio";
 import { createProgressSummary, createWeakPointStats } from "./domain/analytics";
 import {
   createAnswerCsvExport,
+  createChordArpeggioClickCsvExport,
+  createChordArpeggioWeakPointCsvExport,
   createJsonExport,
   createNoteMapClickCsvExport,
   createNoteMapWeakPointCsvExport,
@@ -67,6 +83,7 @@ import {
 import {
   PracticeMemory,
   loadPracticeMemory,
+  saveChordArpeggioRun,
   saveNoteMapRun,
   savePracticeRun,
   saveScalePatternRun,
@@ -82,7 +99,11 @@ type AppProps = {
   rng?: () => number;
 };
 
-type AppMode = "position-to-note" | "note-map" | "scale-pattern";
+type AppMode =
+  | "position-to-note"
+  | "note-map"
+  | "scale-pattern"
+  | "chord-arpeggio";
 type ExportFormat =
   | "json"
   | "answers-csv"
@@ -90,7 +111,9 @@ type ExportFormat =
   | "note-map-clicks-csv"
   | "note-map-weak-points-csv"
   | "scale-pattern-clicks-csv"
-  | "scale-pattern-weak-points-csv";
+  | "scale-pattern-weak-points-csv"
+  | "chord-arpeggio-clicks-csv"
+  | "chord-arpeggio-weak-points-csv";
 
 function formatMs(value: number): string {
   if (!value) {
@@ -282,6 +305,24 @@ export function App({ rng = Math.random }: AppProps) {
       return;
     }
 
+    if (format === "chord-arpeggio-clicks-csv") {
+      downloadTextFile(
+        `fretboard-chord-arpeggio-clicks-${stamp}.csv`,
+        `\uFEFF${createChordArpeggioClickCsvExport(memory)}`,
+        "text/csv;charset=utf-8"
+      );
+      return;
+    }
+
+    if (format === "chord-arpeggio-weak-points-csv") {
+      downloadTextFile(
+        `fretboard-chord-arpeggio-weak-points-${stamp}.csv`,
+        `\uFEFF${createChordArpeggioWeakPointCsvExport(memory)}`,
+        "text/csv;charset=utf-8"
+      );
+      return;
+    }
+
     downloadTextFile(
       `fretboard-weak-points-${stamp}.csv`,
       `\uFEFF${createWeakPointCsvExport(memory)}`,
@@ -364,7 +405,15 @@ export function App({ rng = Math.random }: AppProps) {
         </header>
 
         {screen === "ready" ? (
-          mode === "scale-pattern" ? (
+          mode === "chord-arpeggio" ? (
+            <ChordArpeggioPractice
+              memory={memory}
+              rng={rng}
+              onExport={handleExport}
+              onMemoryChange={setMemory}
+              onModeChange={setMode}
+            />
+          ) : mode === "scale-pattern" ? (
             <ScalePatternPractice
               memory={memory}
               rng={rng}
@@ -516,6 +565,13 @@ function ModeSwitch({ mode, onModeChange }: ModeSwitchProps) {
         onClick={() => onModeChange("scale-pattern")}
       >
         C大调把位
+      </button>
+      <button
+        className={mode === "chord-arpeggio" ? "is-selected" : ""}
+        type="button"
+        onClick={() => onModeChange("chord-arpeggio")}
+      >
+        C大调琶音
       </button>
     </div>
   );
@@ -1257,6 +1313,477 @@ function ScalePatternRunReview({ run, onExport, onRestart }: ScalePatternRunRevi
   );
 }
 
+type ChordArpeggioPracticeProps = {
+  memory: PracticeMemory;
+  rng: () => number;
+  onExport: (format: ExportFormat) => void;
+  onMemoryChange: (memory: PracticeMemory) => void;
+  onModeChange: (mode: AppMode) => void;
+};
+
+type ChordArpeggioScreen =
+  | "ready"
+  | "answer"
+  | "recall"
+  | "question-review"
+  | "run-review";
+
+function makeChordAnswerMarkers(
+  question: ChordArpeggioQuestion
+): Record<string, FretboardMarker> {
+  return Object.fromEntries(
+    question.ascendingSteps.map((step) => [
+      positionKey(step.position),
+      { tone: "answer", label: `${step.noteName}/${step.degree}` } satisfies FretboardMarker,
+    ])
+  );
+}
+
+function groupChordStepsByString(question: ChordArpeggioQuestion) {
+  return [6, 5, 4, 3, 2, 1].map((string) => ({
+    string,
+    steps: question.ascendingSteps.filter((step) => step.position.string === string),
+  }));
+}
+
+function ChordArpeggioPractice({
+  memory,
+  rng,
+  onExport,
+  onMemoryChange,
+  onModeChange,
+}: ChordArpeggioPracticeProps) {
+  const [screen, setScreen] = useState<ChordArpeggioScreen>("ready");
+  const [selectedChordId, setSelectedChordId] =
+    useState<ChordArpeggioChord["id"]>("Cmaj7");
+  const [questions, setQuestions] = useState<ChordArpeggioQuestion[]>([]);
+  const [questionIndex, setQuestionIndex] = useState(0);
+  const [clicks, setClicks] = useState<ChordArpeggioClick[]>([]);
+  const [results, setResults] = useState<ChordArpeggioQuestionResult[]>([]);
+  const [questionStartedAt, setQuestionStartedAt] = useState<number | null>(null);
+  const [questionStartedAtIso, setQuestionStartedAtIso] = useState<string | null>(null);
+  const [runStartedAtIso, setRunStartedAtIso] = useState<string | null>(null);
+  const [lastWrongKey, setLastWrongKey] = useState<string | null>(null);
+  const [savedRun, setSavedRun] = useState<ChordArpeggioRun | null>(null);
+
+  const selectedChord =
+    CHORD_ARPEGGIO_CHORDS.find((chord) => chord.id === selectedChordId) ??
+    CHORD_ARPEGGIO_CHORDS[0];
+  const currentQuestion = questions[questionIndex] ?? null;
+  const currentStepIndex = useMemo(() => getChordArpeggioStepIndex(clicks), [clicks]);
+  const lastResult = results[results.length - 1] ?? null;
+
+  function startChordArpeggio() {
+    const now = new Date().toISOString();
+
+    setQuestions(createChordArpeggioSession(selectedChord.id, rng));
+    setQuestionIndex(0);
+    setClicks([]);
+    setResults([]);
+    setSavedRun(null);
+    setRunStartedAtIso(now);
+    setQuestionStartedAtIso(null);
+    setQuestionStartedAt(null);
+    setLastWrongKey(null);
+    setScreen("answer");
+  }
+
+  function startRecall() {
+    const now = new Date().toISOString();
+
+    setClicks([]);
+    setLastWrongKey(null);
+    setQuestionStartedAtIso(now);
+    setQuestionStartedAt(performance.now());
+    setScreen("recall");
+  }
+
+  function finishQuestion(nextClicks: ChordArpeggioClick[]) {
+    if (!currentQuestion || !questionStartedAtIso || questionStartedAt === null) {
+      return;
+    }
+
+    const result: ChordArpeggioQuestionResult = {
+      question: currentQuestion,
+      clicks: nextClicks,
+      startedAt: questionStartedAtIso,
+      completedAt: new Date().toISOString(),
+      totalElapsedMs: Math.max(1, Math.round(performance.now() - questionStartedAt)),
+    };
+
+    setResults((current) => [...current, result]);
+    setScreen("question-review");
+  }
+
+  function handlePositionClick(position: FretboardPosition) {
+    if (screen !== "recall" || !currentQuestion || questionStartedAt === null) {
+      return;
+    }
+
+    const click = createChordArpeggioClick(
+      currentQuestion,
+      clicks,
+      position,
+      performance.now() - questionStartedAt
+    );
+    const nextClicks = [...clicks, click];
+
+    setClicks(nextClicks);
+
+    if (!click.correct) {
+      const wrongKey = positionKey(position);
+      setLastWrongKey(wrongKey);
+      window.setTimeout(() => {
+        setLastWrongKey((current) => (current === wrongKey ? null : current));
+      }, 900);
+      return;
+    }
+
+    if (isChordArpeggioQuestionComplete(currentQuestion, nextClicks)) {
+      finishQuestion(nextClicks);
+    }
+  }
+
+  function goNextQuestion() {
+    if (questionIndex >= questions.length - 1) {
+      const completedAt = new Date().toISOString();
+      const run: ChordArpeggioRun = {
+        id: makeRunId(),
+        startedAt: runStartedAtIso ?? completedAt,
+        completedAt,
+        chordId: selectedChord.id,
+        questions: results,
+      };
+
+      setSavedRun(run);
+      onMemoryChange(saveChordArpeggioRun(run));
+      setScreen("run-review");
+      return;
+    }
+
+    setQuestionIndex((current) => current + 1);
+    setClicks([]);
+    setLastWrongKey(null);
+    setQuestionStartedAtIso(null);
+    setQuestionStartedAt(null);
+    setScreen("answer");
+  }
+
+  const markerMap = useMemo(() => {
+    const markers: Record<string, FretboardMarker> = {};
+
+    if (screen === "answer" && currentQuestion) {
+      return makeChordAnswerMarkers(currentQuestion);
+    }
+
+    if (screen === "question-review" && lastResult) {
+      return makeChordAnswerMarkers(lastResult.question);
+    }
+
+    for (const click of clicks) {
+      if (click.correct) {
+        markers[positionKey(click.position)] = "found";
+      }
+    }
+
+    if (lastWrongKey) {
+      markers[lastWrongKey] = "wrong";
+    }
+
+    return markers;
+  }, [clicks, currentQuestion, lastResult, lastWrongKey, screen]);
+
+  return (
+    <section className="note-map-panel scale-pattern-panel" aria-label="C大调琶音练习">
+      <div className="note-map-head">
+        <div>
+          <p className="eyebrow">C Major Arpeggios</p>
+          <h2>C大调琶音</h2>
+          <ModeSwitch
+            mode="chord-arpeggio"
+            onModeChange={(nextMode) => {
+              if (nextMode !== "chord-arpeggio") {
+                onModeChange(nextMode);
+              }
+            }}
+          />
+        </div>
+
+        {screen === "ready" ? (
+          <button className="start-button" type="button" onClick={startChordArpeggio}>
+            <Play size={20} fill="currentColor" strokeWidth={2.2} />
+            开始 8 项
+          </button>
+        ) : null}
+      </div>
+
+      {screen === "ready" ? (
+        <>
+          <ChordArpeggioChordPicker
+            selectedChordId={selectedChordId}
+            onSelect={setSelectedChordId}
+          />
+          <div className="ready-tags" aria-label="C大调琶音配置">
+            <span>{selectedChord.name}</span>
+            <span>4 个和弦内音</span>
+            <span>上行 + 下行</span>
+            <span>1-16 品</span>
+            <span>严格顺序</span>
+          </div>
+          <div className="fretboard-scroll ready-board">
+            <Fretboard frets={CHORD_ARPEGGIO_FRETS} />
+          </div>
+          <PracticeMemoryPanel memory={memory} onExport={onExport} />
+        </>
+      ) : null}
+
+      {screen === "answer" && currentQuestion ? (
+        <>
+          <div className="note-map-status scale-pattern-status chord-arpeggio-status">
+            <div>
+              <span>和弦 / 质量</span>
+              <strong>
+                {currentQuestion.chord.name} · {currentQuestion.chord.quality}
+              </strong>
+            </div>
+            <div>
+              <span>起始音</span>
+              <strong>{currentQuestion.startTone.noteName}</strong>
+            </div>
+            <div>
+              <span>方向</span>
+              <strong>{formatDirection(currentQuestion.direction)}</strong>
+            </div>
+            <div>
+              <span>项目</span>
+              <strong>{questionIndex + 1}/8</strong>
+            </div>
+          </div>
+          <ChordArpeggioStringMap question={currentQuestion} />
+          <div className="fretboard-scroll">
+            <Fretboard frets={CHORD_ARPEGGIO_FRETS} markers={markerMap} />
+          </div>
+          <button className="start-button scale-start-recall" type="button" onClick={startRecall}>
+            <Play size={20} fill="currentColor" strokeWidth={2.2} />
+            开始回忆
+          </button>
+        </>
+      ) : null}
+
+      {screen === "recall" && currentQuestion ? (
+        <>
+          <div className="note-map-status scale-pattern-status chord-arpeggio-status">
+            <div>
+              <span>和弦</span>
+              <strong>{currentQuestion.chord.name}</strong>
+            </div>
+            <div>
+              <span>方向</span>
+              <strong>{formatDirection(currentQuestion.direction)}</strong>
+            </div>
+            <div>
+              <span>步骤</span>
+              <strong>
+                {Math.min(currentStepIndex + 1, currentQuestion.steps.length)}/
+                {currentQuestion.steps.length}
+              </strong>
+            </div>
+            <div>
+              <span>错点</span>
+              <strong>{clicks.filter((click) => !click.correct).length}</strong>
+            </div>
+          </div>
+          <div className="fretboard-scroll">
+            <Fretboard
+              frets={CHORD_ARPEGGIO_FRETS}
+              markers={markerMap}
+              onPositionClick={handlePositionClick}
+            />
+          </div>
+          <div className="feedback" role="status">
+            {lastWrongKey ? "这个位置不是当前步骤" : " "}
+          </div>
+        </>
+      ) : null}
+
+      {screen === "question-review" && lastResult ? (
+        <ChordArpeggioQuestionReview
+          result={lastResult}
+          isLast={questionIndex >= questions.length - 1}
+          onNext={goNextQuestion}
+        />
+      ) : null}
+
+      {screen === "run-review" && savedRun ? (
+        <ChordArpeggioRunReview
+          run={savedRun}
+          onExport={onExport}
+          onRestart={startChordArpeggio}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+type ChordArpeggioChordPickerProps = {
+  selectedChordId: ChordArpeggioChord["id"];
+  onSelect: (chordId: ChordArpeggioChord["id"]) => void;
+};
+
+function ChordArpeggioChordPicker({
+  selectedChordId,
+  onSelect,
+}: ChordArpeggioChordPickerProps) {
+  return (
+    <div className="chord-picker" aria-label="琶音和弦选择">
+      {CHORD_ARPEGGIO_CHORDS.map((chord) => (
+        <button
+          className={chord.id === selectedChordId ? "is-selected" : ""}
+          key={chord.id}
+          type="button"
+          onClick={() => onSelect(chord.id)}
+        >
+          <strong>{chord.name}</strong>
+          <span>{chord.quality}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+type ChordArpeggioStringMapProps = {
+  question: ChordArpeggioQuestion;
+};
+
+function ChordArpeggioStringMap({ question }: ChordArpeggioStringMapProps) {
+  return (
+    <div className="scale-string-map" aria-label="琶音答案">
+      {groupChordStepsByString(question).map((row) => (
+        <div className="scale-string-row" key={row.string}>
+          <span>{row.string}弦</span>
+          <strong>
+            {row.steps.map((step) => `${step.noteName}/${step.degree}`).join(" ")}
+          </strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+type ChordArpeggioQuestionReviewProps = {
+  result: ChordArpeggioQuestionResult;
+  isLast: boolean;
+  onNext: () => void;
+};
+
+function ChordArpeggioQuestionReview({
+  result,
+  isLast,
+  onNext,
+}: ChordArpeggioQuestionReviewProps) {
+  const wrongClicks = result.clicks.filter((click) => !click.correct).length;
+  const markers = makeChordAnswerMarkers(result.question);
+
+  return (
+    <section className="note-map-review" aria-label="C大调琶音短复盘">
+      <div className="review-heading">
+        <div>
+          <p className="eyebrow">Arpeggio Review</p>
+          <h2>
+            {result.question.chord.name} · {result.question.startTone.noteName} ·{" "}
+            {formatDirection(result.question.direction)}
+          </h2>
+        </div>
+        <button className="submit-button compact" type="button" onClick={onNext}>
+          {isLast ? "完成整轮" : "下一项目"}
+        </button>
+      </div>
+      <div className="metric-strip review-metrics">
+        <Metric icon={<Timer size={18} />} label="用时" value={formatMs(result.totalElapsedMs)} />
+        <Metric icon={<Activity size={18} />} label="步骤" value={`${result.question.steps.length}`} />
+        <Metric icon={<Flame size={18} />} label="错点" value={`${wrongClicks}`} />
+        <Metric icon={<Trophy size={18} />} label="点击" value={`${result.clicks.length}`} />
+      </div>
+      <ChordArpeggioStringMap question={result.question} />
+      <div className="fretboard-scroll">
+        <Fretboard frets={CHORD_ARPEGGIO_FRETS} markers={markers} />
+      </div>
+    </section>
+  );
+}
+
+type ChordArpeggioRunReviewProps = {
+  run: ChordArpeggioRun;
+  onExport: (format: ExportFormat) => void;
+  onRestart: () => void;
+};
+
+function ChordArpeggioRunReview({
+  run,
+  onExport,
+  onRestart,
+}: ChordArpeggioRunReviewProps) {
+  const summary = createChordArpeggioRunSummary(run);
+  const weakest =
+    summary.weakestStartNote || summary.weakestDirection || summary.weakestDegree
+      ? [
+          summary.weakestStartNote,
+          summary.weakestDirection ? formatDirection(summary.weakestDirection) : null,
+          summary.weakestDegree,
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : "-";
+
+  return (
+    <section className="note-map-review" aria-label="C大调琶音整轮复盘">
+      <div className="review-heading">
+        <div>
+          <p className="eyebrow">Arpeggio Complete</p>
+          <h2>{run.chordId} 琶音复盘</h2>
+        </div>
+        <button className="submit-button compact" type="button" onClick={onRestart}>
+          再练一轮
+        </button>
+      </div>
+      <div className="metric-strip review-metrics">
+        <Metric icon={<Activity size={18} />} label="项目" value={`${summary.questionCount}`} />
+        <Metric icon={<Timer size={18} />} label="平均每项" value={formatMs(summary.averageQuestionMs)} />
+        <Metric icon={<Flame size={18} />} label="总错点" value={`${summary.wrongClicks}`} />
+        <Metric icon={<Trophy size={18} />} label="最弱" value={weakest} />
+      </div>
+      <section className="review-list">
+        <h3>每个项目</h3>
+        {summary.questionSummaries.map((question) => (
+          <div className="review-row" key={question.question.id}>
+            <span>
+              {question.question.startTone.noteName} ·{" "}
+              {formatDirection(question.question.direction)}
+            </span>
+            <strong>
+              {formatMs(question.totalElapsedMs)} · 错 {question.wrongClicks}
+            </strong>
+          </div>
+        ))}
+      </section>
+      <div className="export-actions note-map-export">
+        <ExportButton
+          icon={<Table size={16} />}
+          label="琶音明细 CSV"
+          title="导出 C 大调琶音明细 CSV"
+          onClick={() => onExport("chord-arpeggio-clicks-csv")}
+        />
+        <ExportButton
+          icon={<Download size={16} />}
+          label="琶音弱点 CSV"
+          title="导出 C 大调琶音弱点 CSV"
+          onClick={() => onExport("chord-arpeggio-weak-points-csv")}
+        />
+      </div>
+    </section>
+  );
+}
+
 type PracticeMemoryPanelProps = {
   compact?: boolean;
   memory: PracticeMemory;
@@ -1320,6 +1847,18 @@ function PracticeMemoryPanel({ compact = false, memory, onExport }: PracticeMemo
             label="把位弱点 CSV"
             title="导出 C 大调把位弱点 CSV"
             onClick={() => onExport("scale-pattern-weak-points-csv")}
+          />
+          <ExportButton
+            icon={<Table size={16} />}
+            label="琶音明细 CSV"
+            title="导出 C 大调琶音明细 CSV"
+            onClick={() => onExport("chord-arpeggio-clicks-csv")}
+          />
+          <ExportButton
+            icon={<Download size={16} />}
+            label="琶音弱点 CSV"
+            title="导出 C 大调琶音弱点 CSV"
+            onClick={() => onExport("chord-arpeggio-weak-points-csv")}
           />
         </div>
       </div>

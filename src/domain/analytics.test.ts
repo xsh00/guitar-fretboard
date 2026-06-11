@@ -9,6 +9,13 @@ import {
   createScalePatternQuestion,
 } from "./scalePattern";
 import {
+  CHORD_ARPEGGIO_CHORDS,
+  ChordArpeggioRun,
+  createChordArpeggioClick,
+  createChordArpeggioQuestion,
+} from "./chordArpeggio";
+import {
+  createChordArpeggioWeakPointStats,
   createNoteMapWeakPointStats,
   createProgressSummary,
   createRunTrend,
@@ -152,6 +159,52 @@ describe("practice analytics", () => {
       wrongClicks: 1,
     });
     expect(weakPoints.byDirection[0].direction).toBe("ascending");
+    expect(weakPoints.byString.length).toBeGreaterThan(0);
+    expect(weakPoints.byStep[0].stepIndex).toBe(1);
+  });
+
+  it("summarizes chord-arpeggio weak points by harmonic dimensions", () => {
+    const chord = CHORD_ARPEGGIO_CHORDS[0];
+    const question = createChordArpeggioQuestion(chord, chord.tones[0], "ascending");
+    const wrongClick = createChordArpeggioClick(
+      question,
+      [],
+      question.steps[1].position,
+      1200
+    );
+    const correctClick = createChordArpeggioClick(
+      question,
+      [],
+      question.steps[0].position,
+      800
+    );
+    const run: ChordArpeggioRun = {
+      id: "chord-arpeggio-run",
+      startedAt: "2026-06-10T00:00:00.000Z",
+      completedAt: "2026-06-10T00:01:00.000Z",
+      chordId: chord.id,
+      questions: [
+        {
+          question,
+          clicks: [wrongClick, correctClick],
+          startedAt: "2026-06-10T00:00:00.000Z",
+          completedAt: "2026-06-10T00:00:05.000Z",
+          totalElapsedMs: 5000,
+        },
+      ],
+    };
+
+    const weakPoints = createChordArpeggioWeakPointStats([run]);
+
+    expect(weakPoints.byChord[0]).toMatchObject({
+      dimension: "chord",
+      chord: "Cmaj7",
+      wrongClicks: 1,
+    });
+    expect(weakPoints.byQuality[0].quality).toBe("maj7");
+    expect(weakPoints.byStartNote[0].startNote).toBe("C");
+    expect(weakPoints.byDirection[0].direction).toBe("ascending");
+    expect(weakPoints.byDegree[0].degree).toBe("1");
     expect(weakPoints.byString.length).toBeGreaterThan(0);
     expect(weakPoints.byStep[0].stepIndex).toBe(1);
   });

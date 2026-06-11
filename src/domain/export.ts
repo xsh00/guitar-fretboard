@@ -1,5 +1,6 @@
 import { formatPitchClass, positionLabel } from "./fretboard";
 import {
+  createChordArpeggioWeakPointStats,
   createNoteMapWeakPointStats,
   createProgressSummary,
   createRunTrend,
@@ -17,6 +18,7 @@ export type ExportBundle = {
   weakPoints: ReturnType<typeof createWeakPointStats>;
   noteMapWeakPoints: ReturnType<typeof createNoteMapWeakPointStats>;
   scalePatternWeakPoints: ReturnType<typeof createScalePatternWeakPointStats>;
+  chordArpeggioWeakPoints: ReturnType<typeof createChordArpeggioWeakPointStats>;
   runTrend: ReturnType<typeof createRunTrend>;
 };
 
@@ -44,6 +46,9 @@ export function createExportBundle(memory: PracticeMemory): ExportBundle {
     weakPoints: createWeakPointStats(memory.runs),
     noteMapWeakPoints: createNoteMapWeakPointStats(memory.noteMapRuns),
     scalePatternWeakPoints: createScalePatternWeakPointStats(memory.scalePatternRuns),
+    chordArpeggioWeakPoints: createChordArpeggioWeakPointStats(
+      memory.chordArpeggioRuns
+    ),
     runTrend: createRunTrend(memory.runs),
   };
 }
@@ -320,6 +325,123 @@ export function createScalePatternWeakPointCsvExport(memory: PracticeMemory): st
         group.key,
         group.startNote,
         group.direction,
+        group.string,
+        group.stepIndex,
+        group.attempts,
+        group.wrongClicks,
+        group.averageMs,
+        group.score,
+      ])
+    );
+  }
+
+  return rows.join("\n");
+}
+
+export function createChordArpeggioClickCsvExport(memory: PracticeMemory): string {
+  const rows = [
+    csvRow([
+      "run_id",
+      "run_started_at",
+      "run_completed_at",
+      "question_index",
+      "chord",
+      "quality",
+      "start_note",
+      "direction",
+      "click_index",
+      "step_index",
+      "expected_string",
+      "expected_fret",
+      "expected_position",
+      "expected_note",
+      "expected_degree",
+      "clicked_string",
+      "clicked_fret",
+      "clicked_position",
+      "clicked_note",
+      "correct",
+      "elapsed_ms",
+      "clicked_at",
+      "question_total_elapsed_ms",
+    ]),
+  ];
+
+  for (const run of memory.chordArpeggioRuns) {
+    run.questions.forEach((question, questionIndex) => {
+      question.clicks.forEach((click, clickIndex) => {
+        rows.push(
+          csvRow([
+            run.id,
+            run.startedAt,
+            run.completedAt,
+            questionIndex + 1,
+            question.question.chord.name,
+            question.question.chord.quality,
+            question.question.startTone.noteName,
+            question.question.direction,
+            clickIndex + 1,
+            click.stepIndex + 1,
+            click.expected.string,
+            click.expected.fret,
+            positionLabel(click.expected),
+            formatPitchClass(click.expected.pitchClass),
+            click.expectedDegree,
+            click.position.string,
+            click.position.fret,
+            positionLabel(click.position),
+            formatPitchClass(click.position.pitchClass),
+            click.correct,
+            click.elapsedMs,
+            click.clickedAt,
+            question.totalElapsedMs,
+          ])
+        );
+      });
+    });
+  }
+
+  return rows.join("\n");
+}
+
+export function createChordArpeggioWeakPointCsvExport(memory: PracticeMemory): string {
+  const rows = [
+    csvRow([
+      "dimension",
+      "key",
+      "chord",
+      "quality",
+      "start_note",
+      "direction",
+      "degree",
+      "string",
+      "step_index",
+      "attempts",
+      "wrong_clicks",
+      "average_ms",
+      "weakness_score",
+    ]),
+  ];
+  const weakPoints = createChordArpeggioWeakPointStats(memory.chordArpeggioRuns);
+
+  for (const group of [
+    ...weakPoints.byChord,
+    ...weakPoints.byQuality,
+    ...weakPoints.byStartNote,
+    ...weakPoints.byDirection,
+    ...weakPoints.byDegree,
+    ...weakPoints.byString,
+    ...weakPoints.byStep,
+  ]) {
+    rows.push(
+      csvRow([
+        group.dimension,
+        group.key,
+        group.chord,
+        group.quality,
+        group.startNote,
+        group.direction,
+        group.degree,
         group.string,
         group.stepIndex,
         group.attempts,

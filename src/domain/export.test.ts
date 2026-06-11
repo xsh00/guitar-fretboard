@@ -9,7 +9,15 @@ import {
   createScalePatternQuestion,
 } from "./scalePattern";
 import {
+  CHORD_ARPEGGIO_CHORDS,
+  ChordArpeggioRun,
+  createChordArpeggioClick,
+  createChordArpeggioQuestion,
+} from "./chordArpeggio";
+import {
   createAnswerCsvExport,
+  createChordArpeggioClickCsvExport,
+  createChordArpeggioWeakPointCsvExport,
   createJsonExport,
   createNoteMapClickCsvExport,
   createNoteMapWeakPointCsvExport,
@@ -74,14 +82,42 @@ function makeMemory(): PracticeMemory {
       },
     ],
   };
+  const arpeggioChord = CHORD_ARPEGGIO_CHORDS[0];
+  const arpeggioQuestion = createChordArpeggioQuestion(
+    arpeggioChord,
+    arpeggioChord.tones[0],
+    "ascending"
+  );
+  const arpeggioClick = createChordArpeggioClick(
+    arpeggioQuestion,
+    [],
+    arpeggioQuestion.steps[0].position,
+    850
+  );
+  const chordArpeggioRun: ChordArpeggioRun = {
+    id: "chord-arpeggio-run",
+    startedAt: "2026-06-10T00:06:00.000Z",
+    completedAt: "2026-06-10T00:07:00.000Z",
+    chordId: arpeggioChord.id,
+    questions: [
+      {
+        question: arpeggioQuestion,
+        clicks: [arpeggioClick],
+        startedAt: "2026-06-10T00:06:00.000Z",
+        completedAt: "2026-06-10T00:06:05.000Z",
+        totalElapsedMs: 5000,
+      },
+    ],
+  };
 
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     createdAt: "2026-06-10T00:00:00.000Z",
     updatedAt: "2026-06-10T00:01:00.000Z",
     runs: [run],
     noteMapRuns: [noteMapRun],
     scalePatternRuns: [scalePatternRun],
+    chordArpeggioRuns: [chordArpeggioRun],
   };
 }
 
@@ -93,10 +129,12 @@ describe("practice export", () => {
     expect(parsed.memory.runs[0].id).toBe("run-1");
     expect(parsed.memory.noteMapRuns[0].id).toBe("note-map-run");
     expect(parsed.memory.scalePatternRuns[0].id).toBe("scale-pattern-run");
+    expect(parsed.memory.chordArpeggioRuns[0].id).toBe("chord-arpeggio-run");
     expect(parsed.progress.totalAnswers).toBe(1);
     expect(parsed.weakPoints).toHaveLength(1);
     expect(parsed.noteMapWeakPoints.byNote).toHaveLength(1);
     expect(parsed.scalePatternWeakPoints.byStartNote).toHaveLength(1);
+    expect(parsed.chordArpeggioWeakPoints.byChord).toHaveLength(1);
   });
 
   it("creates answer-level CSV", () => {
@@ -145,5 +183,21 @@ describe("practice export", () => {
     expect(csv).toContain("dimension,key,start_note");
     expect(csv).toContain("start-note,F,F");
     expect(csv).toContain("direction,ascending");
+  });
+
+  it("creates chord-arpeggio click CSV", () => {
+    const csv = createChordArpeggioClickCsvExport(makeMemory());
+
+    expect(csv).toContain("chord,quality,start_note,direction");
+    expect(csv).toContain("chord-arpeggio-run");
+    expect(csv).toContain("Cmaj7,maj7,C,ascending");
+  });
+
+  it("creates chord-arpeggio weak-point CSV", () => {
+    const csv = createChordArpeggioWeakPointCsvExport(makeMemory());
+
+    expect(csv).toContain("dimension,key,chord,quality");
+    expect(csv).toContain("chord,Cmaj7,Cmaj7");
+    expect(csv).toContain("degree,1");
   });
 });

@@ -8,6 +8,11 @@ import {
 import { PracticeAnswer, PracticeRun, createPracticeSummary } from "./practice";
 import { NoteMapRun } from "./noteMap";
 import { ScalePatternDirection, ScalePatternRun } from "./scalePattern";
+import {
+  ChordArpeggioDirection,
+  ChordArpeggioQuality,
+  ChordArpeggioRun,
+} from "./chordArpeggio";
 
 export type ProgressSummary = {
   runCount: number;
@@ -82,6 +87,39 @@ export type ScalePatternWeakPointSummary = {
   byDirection: ScalePatternWeakPointStat[];
   byString: ScalePatternWeakPointStat[];
   byStep: ScalePatternWeakPointStat[];
+};
+
+export type ChordArpeggioWeakPointStat = {
+  key: string;
+  dimension:
+    | "chord"
+    | "quality"
+    | "start-note"
+    | "direction"
+    | "degree"
+    | "string"
+    | "step";
+  chord: string | null;
+  quality: ChordArpeggioQuality | null;
+  startNote: string | null;
+  direction: ChordArpeggioDirection | null;
+  degree: string | null;
+  string: number | null;
+  stepIndex: number | null;
+  attempts: number;
+  wrongClicks: number;
+  averageMs: number;
+  score: number;
+};
+
+export type ChordArpeggioWeakPointSummary = {
+  byChord: ChordArpeggioWeakPointStat[];
+  byQuality: ChordArpeggioWeakPointStat[];
+  byStartNote: ChordArpeggioWeakPointStat[];
+  byDirection: ChordArpeggioWeakPointStat[];
+  byDegree: ChordArpeggioWeakPointStat[];
+  byString: ChordArpeggioWeakPointStat[];
+  byStep: ChordArpeggioWeakPointStat[];
 };
 
 function flattenAnswers(runs: PracticeRun[]): PracticeAnswer[] {
@@ -372,6 +410,163 @@ export function createScalePatternWeakPointStats(
       return {
         startNote,
         direction: direction as ScalePatternDirection,
+        string: null,
+        stepIndex: Number(stepIndex),
+      };
+    }),
+  };
+}
+
+function toChordArpeggioStats(
+  map: Map<string, { values: number[]; wrongClicks: number; attempts: number }>,
+  dimension: ChordArpeggioWeakPointStat["dimension"],
+  parseKey: (
+    key: string
+  ) => Pick<
+    ChordArpeggioWeakPointStat,
+    | "chord"
+    | "quality"
+    | "startNote"
+    | "direction"
+    | "degree"
+    | "string"
+    | "stepIndex"
+  >
+): ChordArpeggioWeakPointStat[] {
+  return Array.from(map.entries())
+    .map(([key, stat]) => {
+      const averageMs = average(stat.values);
+      const parsed = parseKey(key);
+
+      return {
+        key,
+        dimension,
+        chord: parsed.chord,
+        quality: parsed.quality,
+        startNote: parsed.startNote,
+        direction: parsed.direction,
+        degree: parsed.degree,
+        string: parsed.string,
+        stepIndex: parsed.stepIndex,
+        attempts: stat.attempts,
+        wrongClicks: stat.wrongClicks,
+        averageMs,
+        score: Math.round(averageMs + stat.wrongClicks * 1700),
+      };
+    })
+    .sort((a, b) => b.score - a.score);
+}
+
+export function createChordArpeggioWeakPointStats(
+  runs: ChordArpeggioRun[]
+): ChordArpeggioWeakPointSummary {
+  const byChord = new Map<string, { values: number[]; wrongClicks: number; attempts: number }>();
+  const byQuality = new Map<string, { values: number[]; wrongClicks: number; attempts: number }>();
+  const byStartNote = new Map<string, { values: number[]; wrongClicks: number; attempts: number }>();
+  const byDirection = new Map<string, { values: number[]; wrongClicks: number; attempts: number }>();
+  const byDegree = new Map<string, { values: number[]; wrongClicks: number; attempts: number }>();
+  const byString = new Map<string, { values: number[]; wrongClicks: number; attempts: number }>();
+  const byStep = new Map<string, { values: number[]; wrongClicks: number; attempts: number }>();
+
+  for (const run of runs) {
+    for (const question of run.questions) {
+      const wrongClicks = question.clicks.filter((click) => !click.correct).length;
+      const chordKey = question.question.chord.id;
+      const qualityKey = question.question.chord.quality;
+      const startNoteKey = question.question.startTone.noteName;
+      const directionKey = question.question.direction;
+
+      pushStatValue(byChord, chordKey, question.totalElapsedMs, wrongClicks);
+      pushStatValue(byQuality, qualityKey, question.totalElapsedMs, wrongClicks);
+      pushStatValue(byStartNote, startNoteKey, question.totalElapsedMs, wrongClicks);
+      pushStatValue(byDirection, directionKey, question.totalElapsedMs, wrongClicks);
+
+      for (const click of question.clicks) {
+        pushStatValue(
+          byDegree,
+          click.expectedDegree,
+          click.elapsedMs,
+          click.correct ? 0 : 1
+        );
+        pushStatValue(
+          byString,
+          String(click.position.string),
+          click.elapsedMs,
+          click.correct ? 0 : 1
+        );
+        pushStatValue(
+          byStep,
+          `${question.question.chord.id}-${question.question.startTone.noteName}-${question.question.direction}-${click.stepIndex + 1}`,
+          click.elapsedMs,
+          click.correct ? 0 : 1
+        );
+      }
+    }
+  }
+
+  return {
+    byChord: toChordArpeggioStats(byChord, "chord", (key) => ({
+      chord: key,
+      quality: null,
+      startNote: null,
+      direction: null,
+      degree: null,
+      string: null,
+      stepIndex: null,
+    })),
+    byQuality: toChordArpeggioStats(byQuality, "quality", (key) => ({
+      chord: null,
+      quality: key as ChordArpeggioQuality,
+      startNote: null,
+      direction: null,
+      degree: null,
+      string: null,
+      stepIndex: null,
+    })),
+    byStartNote: toChordArpeggioStats(byStartNote, "start-note", (key) => ({
+      chord: null,
+      quality: null,
+      startNote: key,
+      direction: null,
+      degree: null,
+      string: null,
+      stepIndex: null,
+    })),
+    byDirection: toChordArpeggioStats(byDirection, "direction", (key) => ({
+      chord: null,
+      quality: null,
+      startNote: null,
+      direction: key as ChordArpeggioDirection,
+      degree: null,
+      string: null,
+      stepIndex: null,
+    })),
+    byDegree: toChordArpeggioStats(byDegree, "degree", (key) => ({
+      chord: null,
+      quality: null,
+      startNote: null,
+      direction: null,
+      degree: key,
+      string: null,
+      stepIndex: null,
+    })),
+    byString: toChordArpeggioStats(byString, "string", (key) => ({
+      chord: null,
+      quality: null,
+      startNote: null,
+      direction: null,
+      degree: null,
+      string: Number(key),
+      stepIndex: null,
+    })),
+    byStep: toChordArpeggioStats(byStep, "step", (key) => {
+      const [chord, startNote, direction, stepIndex] = key.split("-");
+      return {
+        chord,
+        quality: null,
+        startNote,
+        direction: direction as ChordArpeggioDirection,
+        degree: null,
         string: null,
         stepIndex: Number(stepIndex),
       };

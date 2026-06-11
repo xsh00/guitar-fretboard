@@ -2,7 +2,8 @@ export type ExerciseMode =
   | "position-to-note"
   | "note-to-position"
   | "note-map"
-  | "scale-pattern";
+  | "scale-pattern"
+  | "chord-arpeggio";
 
 export type GuitarString = 1 | 2 | 3 | 4 | 5 | 6;
 
